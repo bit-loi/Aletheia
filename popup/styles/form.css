@@ -1,0 +1,200 @@
+/* ==========================================================================
+   Aletheia Popup - Settings Form, Inputs, Buttons & Footer
+   ========================================================================== */
+
+.settings-section h2 {
+  font-size: 10px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: #ffffff;
+  opacity: 0.9;
+  margin-bottom: 10px;
+  margin-top: 16px;
+}
+
+.settings-section h2:first-child {
+  margin-top: 0;
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.field label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.optional-badge {
+  font-size: 9px;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #000000;
+  font-weight: 800;
+  text-transform: uppercase;
+  border: 1.5px solid #ffffff;
+}
+
+/* ===== Input Fields ===== */
+.field input[type="password"],
+.field input[type="text"] {
+  width: 100%;
+  padding: 9px 12px;
+  border: 2px solid #ffffff;
+  border-radius: 10px;
+  background: #000000;
+  color: #ffffff !important;
+  caret-color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  box-shadow: 3px 3px 0px #ffffff;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: #ffffff;
+  box-shadow: 4px 4px 0px #ffffff;
+  background: #111111;
+}
+
+.field input::placeholder {
+  color: #ffffff !important;
+  opacity: 0.75 !important;
+}
+
+/* ===== Actions & Buttons ===== */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.btn-primary {
+  padding: 10px 20px;
+  border: 2px solid #ffffff;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 800;
+  font-family: 'Courier New', Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  box-shadow: 3.5px 3.5px 0px #ffffff;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: #e4e4e7;
+}
+
+.btn-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1.5px 1.5px 0px #ffffff;
+}
+
+.save-status {
+  font-size: 11px;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #10b981;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.save-status.visible {
+  opacity: 1;
+}
+
+/* ===== Footer ===== */
+.popup-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 2px solid #ffffff;
+}
+
+.popup-footer p {
+  font-size: 10.5px;
+  color: #ffffff;
+  opacity: 0.85;
+  line-height: 1.5;
+}
+
+/* ===== Light Theme Overrides ===== */
+body.light-theme .settings-section h2 {
+  color: #000000;
+  opacity: 1;
+}
+
+body.light-theme .field label {
+  color: #000000;
+}
+
+body.light-theme .optional-badge {
+  background: #000000;
+  color: #ffffff;
+  border-color: #000000;
+}
+
+body.light-theme .field input[type="password"],
+body.light-theme .field input[type="text"] {
+  background: #ffffff;
+  border-color: #000000;
+  color: #000000 !important;
+  caret-color: #000000;
+  box-shadow: 3px 3px 0px #000000;
+}
+
+body.light-theme .field input:focus {
+  border-color: #000000;
+  box-shadow: 4px 4px 0px #000000;
+  background: #ffffff;
+}
+
+body.light-theme .field input::placeholder {
+  color: #000000 !important;
+  opacity: 0.65 !important;
+}
+
+body.light-theme .btn-primary {
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff;
+  box-shadow: 3.5px 3.5px 0px #000000;
+}
+
+body.light-theme .btn-primary:hover {
+  background: #222222;
+}
+
+body.light-theme .btn-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1.5px 1.5px 0px #000000;
+}
+
+body.light-theme .save-status {
+  color: #059669;
+}
+
+body.light-theme .popup-footer {
+  border-top-color: #000000;
+}
+
+body.light-theme .popup-footer p {
+  color: #000000;
+  opacity: 1;
+}

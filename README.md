@@ -141,9 +141,14 @@ aletheia/
 |   +-- content.css               # Host element positioning
 |
 |-- popup/
-|   |-- popup.html                # Settings UI
-|   |-- popup.js                  # Settings persistence
-|   +-- popup.css                 # Popup styling
+|   |-- popup.html                # Settings UI shell
+|   |-- popup.js                  # Settings persistence & custom dropdown logic
+|   |-- popup.css                 # Main CSS entry point
+|   +-- styles/
+|       |-- base.css              # Layout reset & theme variables
+|       |-- header.css            # Header & theme toggle switch
+|       |-- form.css              # Input fields, buttons & footer
+|       +-- dropdown.css          # Custom LLM model selector
 |
 |-- offscreen/
 |   |-- offscreen.html            # Offscreen document shell (MV3 requirement)
