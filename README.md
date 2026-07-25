@@ -1,6 +1,6 @@
 # <img src="icons/Aletheia-Logo.png" width="40" height="40" alt="Aletheia logo" align="center"> Aletheia
 
-**AI-powered real-time fact-checking for web news articles and YouTube videos.**
+**Aletheia is an AI Powered Real Time Fact Checking for News Videos and Web Articles.**
 
 Built for the **UNESCO Youth Hackathon 2026**, AI and Media & Information Literacy track.
 
