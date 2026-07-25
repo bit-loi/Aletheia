@@ -118,6 +118,10 @@ window.Aletheia.Overlay = class AletheiaOverlay {
     panel.querySelector('#al-minimize').addEventListener('click', () => this.minimize());
     panel.querySelector('#al-close').addEventListener('click', () => this.close());
 
+    // Make panel header draggable
+    const header = panel.querySelector('.panel-header');
+    this._makeDraggable(header, panel);
+
     return panel;
   }
 
@@ -125,10 +129,73 @@ window.Aletheia.Overlay = class AletheiaOverlay {
   _buildFAB() {
     const fab = document.createElement('div');
     fab.className = 'aletheia-fab hidden';
-    fab.innerHTML = '<span style="color:#00D4AA;font-weight:800;font-size:22px;">A</span>';
+    fab.innerHTML = '<span style="color:#ffffff;font-weight:800;font-size:20px;font-family:\'Courier New\',Courier,monospace;">A</span>';
     fab.title = 'Show Aletheia panel';
     fab.addEventListener('click', () => this.expand());
+    this._makeDraggable(fab, fab);
     return fab;
+  }
+
+  /** Make any target element draggable by dragging a handle. */
+  _makeDraggable(handle, target) {
+    let isDragging = false;
+    let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
+
+    const onMouseDown = (e) => {
+      const path = e.composedPath ? e.composedPath() : [e.target];
+      const clickedBtn = path.find((el) => el.classList && el.classList.contains('ctrl-btn'));
+      if (clickedBtn) return;
+
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const rect = target.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
+
+      target.style.position = 'fixed';
+      target.style.left = `${initialLeft}px`;
+      target.style.top = `${initialTop}px`;
+      target.style.right = 'auto';
+      target.style.bottom = 'auto';
+
+      handle.style.cursor = 'grabbing';
+      window.addEventListener('mousemove', onMouseMove, true);
+      window.addEventListener('mouseup', onMouseUp, true);
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const onMouseMove = (e) => {
+      if (!isDragging) return;
+
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+
+      let newLeft = initialLeft + deltaX;
+      let newTop = initialTop + deltaY;
+
+      const maxLeft = window.innerWidth - target.offsetWidth;
+      const maxTop = window.innerHeight - target.offsetHeight;
+
+      newLeft = Math.max(8, Math.min(newLeft, maxLeft - 8));
+      newTop = Math.max(8, Math.min(newTop, maxTop - 8));
+
+      target.style.left = `${newLeft}px`;
+      target.style.top = `${newTop}px`;
+    };
+
+    const onMouseUp = () => {
+      if (isDragging) {
+        isDragging = false;
+        handle.style.cursor = 'grab';
+        window.removeEventListener('mousemove', onMouseMove, true);
+        window.removeEventListener('mouseup', onMouseUp, true);
+      }
+    };
+
+    handle.addEventListener('mousedown', onMouseDown);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

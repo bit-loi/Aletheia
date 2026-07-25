@@ -29,35 +29,78 @@ let mediaRecorder = null;
 let deepgramSocket = null;
 let transcriptBuffer = '';
 let lastFlushTime = Date.now();
-const BUFFER_INTERVAL_MS = 20000; // 20-second windows
+const BUFFER_INTERVAL_MS = 6000; // 6-second windows for fast real-time claims
 
 // ─── Capture logic ────────────────────────────────────────────────────────────
 
 async function startCapture(streamId, deepgramKey) {
   try {
-    // Get the tab's audio stream
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        mandatory: {
-          chromeMediaSource: 'tab',
-          chromeMediaSourceId: streamId,
+    if (!streamId) {
+      throw new Error('No streamId provided to offscreen capture');
+    }
+
+    // Get tab audio stream (streamId can only be consumed once)
+    mediaStream = await navigator.mediaDevices
+      .getUserMedia({
+        audio: {
+          mandatory: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: streamId,
+          },
         },
-      },
-    });
+        video: false,
+      })
+      .catch(async (err) => {
+        // Fallback standar Chromium modern jika mandatory syntax di-reject
+        return await navigator.mediaDevices.getUserMedia({
+          audio: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: streamId,
+          },
+          video: false,
+        });
+      });
 
-    // Open Deepgram WebSocket
+    // Connect audio stream to speakers so user can still hear the YouTube video
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(mediaStream);
+      source.connect(audioCtx.destination);
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+    } catch (aErr) {
+      console.warn('[Aletheia Offscreen] AudioContext speaker playback warning:', aErr);
+    }
+
+    if (!deepgramKey || !deepgramKey.trim()) {
+      throw new Error('Deepgram API Key is missing or invalid.');
+    }
+    const cleanKey = deepgramKey.trim();
+
+    console.log(
+      '[Aletheia Offscreen] Connecting to Deepgram with Key:',
+      cleanKey ? `${cleanKey.slice(0, 6)}...` : 'EMPTY'
+    );
+
+    // Open Deepgram WebSocket (authenticate via subprotocol)
     const dgUrl =
-      'wss://api.deepgram.com/v1/listen?' +
-      'model=nova-2&' +
-      'language=en&' + // Can be changed to 'multi' for multilingual
-      'smart_format=true&' +
-      'interim_results=false&' +
-      'punctuate=true';
+      `wss://api.deepgram.com/v1/listen?` +
+      `model=nova-2&` +
+      `language=en&` +
+      `smart_format=true&` +
+      `interim_results=false&` +
+      `punctuate=true`;
 
-    deepgramSocket = new WebSocket(dgUrl, ['token', deepgramKey]);
+    deepgramSocket = new WebSocket(dgUrl, ['token', cleanKey]);
 
     deepgramSocket.onopen = () => {
-      console.log('[Aletheia Offscreen] Deepgram WebSocket connected.');
+      console.log('[Aletheia Offscreen] Deepgram WebSocket connected successfully.');
+      chrome.runtime.sendMessage({
+        type: 'STATUS_UPDATE',
+        status: 'Deepgram connected. Transcribing audio...',
+        phase: 'youtube_live',
+      });
 
       // Start recording audio and sending to Deepgram
       mediaRecorder = new MediaRecorder(mediaStream, {
@@ -95,10 +138,10 @@ async function startCapture(streamId, deepgramKey) {
     };
 
     deepgramSocket.onerror = (err) => {
-      console.error('[Aletheia Offscreen] Deepgram WebSocket error:', err);
+      console.error('[Aletheia Offscreen] Deepgram WebSocket error event:', err);
       chrome.runtime.sendMessage({
         type: 'OFFSCREEN_ERROR',
-        error: 'Deepgram connection error. Check your API key.',
+        error: 'Deepgram connection rejected. Check that your API key starts with "dg-", has remaining credits, and is valid.',
       });
     };
 
@@ -120,7 +163,7 @@ async function startCapture(streamId, deepgramKey) {
 
 function flushBuffer() {
   const text = transcriptBuffer.trim();
-  if (text.length > 50) {
+  if (text.length > 20) {
     // Only send if there's meaningful content
     chrome.runtime.sendMessage({
       type: 'TRANSCRIPT_CHUNK',

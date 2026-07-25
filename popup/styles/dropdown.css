@@ -120,6 +120,12 @@
   color: #ffffff;
 }
 
+.tag-free {
+  background: #064E3B;
+  color: #34D399;
+  border-color: #10B981;
+}
+
 /* ===== Custom Scrollbar ===== */
 .dropdown-menu::-webkit-scrollbar {
   width: 6px;

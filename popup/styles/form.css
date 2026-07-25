@@ -81,20 +81,24 @@
   margin-top: 20px;
 }
 
-.btn-primary {
-  padding: 10px 20px;
+.btn-primary,
+.btn-secondary {
+  padding: 9px 16px;
   border: 2px solid #ffffff;
   border-radius: 10px;
-  background: #ffffff;
-  color: #000000;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   font-family: 'Courier New', Courier, monospace;
   text-transform: uppercase;
   letter-spacing: 0.8px;
   cursor: pointer;
   box-shadow: 3.5px 3.5px 0px #ffffff;
-  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.btn-primary {
+  background: #ffffff;
+  color: #000000;
 }
 
 .btn-primary:hover {
@@ -102,6 +106,20 @@
 }
 
 .btn-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1.5px 1.5px 0px #ffffff;
+}
+
+.btn-secondary {
+  background: #000000;
+  color: #ffffff;
+}
+
+.btn-secondary:hover {
+  background: #18181b;
+}
+
+.btn-secondary:active {
   transform: translate(2px, 2px);
   box-shadow: 1.5px 1.5px 0px #ffffff;
 }
@@ -182,6 +200,22 @@ body.light-theme .btn-primary:hover {
 }
 
 body.light-theme .btn-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1.5px 1.5px 0px #000000;
+}
+
+body.light-theme .btn-secondary {
+  background: #ffffff;
+  border-color: #000000;
+  color: #000000;
+  box-shadow: 3.5px 3.5px 0px #000000;
+}
+
+body.light-theme .btn-secondary:hover {
+  background: #f4f4f5;
+}
+
+body.light-theme .btn-secondary:active {
   transform: translate(2px, 2px);
   box-shadow: 1.5px 1.5px 0px #000000;
 }

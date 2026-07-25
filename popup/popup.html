@@ -35,7 +35,18 @@
       <h2>API Keys</h2>
 
       <div class="field">
-        <label for="openrouter-key">OpenRouter API Key</label>
+        <label for="gemini-key">
+          Google Gemini API Key
+          <span class="optional-badge">AI Studio</span>
+        </label>
+        <input type="password" id="gemini-key" placeholder="AQ.… or AIzaSy…" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="openrouter-key">
+          OpenRouter API Key
+          <span class="optional-badge">Alternative</span>
+        </label>
         <input type="password" id="openrouter-key" placeholder="sk-or-…" autocomplete="off">
       </div>
 
@@ -55,13 +66,49 @@
       <h2>Model</h2>
       <div class="field">
         <label>LLM Model</label>
-        <input type="hidden" id="model-select" value="anthropic/claude-sonnet-4">
+        <input type="hidden" id="model-select" value="google/gemma-4-31b-it:free">
         <div class="custom-dropdown" id="custom-model-dropdown">
           <div class="dropdown-trigger" id="dropdown-trigger">
-            <span class="selected-text" id="selected-model-text">Claude Sonnet 4 (Recommended)</span>
+            <span class="selected-text" id="selected-model-text">Gemma 4 31B (Free)</span>
             <span class="dropdown-arrow">v</span>
           </div>
           <div class="dropdown-menu" id="dropdown-menu">
+            <div class="dropdown-group-header">Google Gemma (100% Free)</div>
+            <div class="dropdown-item selected" data-value="google/gemma-4-31b-it:free">
+              <span>Gemma 4 31B</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+            <div class="dropdown-item" data-value="google/gemma-4-26b-a4b:free">
+              <span>Gemma 4 26B A4B</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+            <div class="dropdown-item" data-value="google/gemma-3-27b-it:free">
+              <span>Gemma 3 27B</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+            <div class="dropdown-item" data-value="google/gemma-2-9b-it:free">
+              <span>Gemma 2 9B</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+            <div class="dropdown-item" data-value="google/gemma-3-4b-it:free">
+              <span>Gemma 3 4B</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+
+            <div class="dropdown-group-header">Other 100% Free Models</div>
+            <div class="dropdown-item" data-value="google/gemini-2.0-flash-exp:free">
+              <span>Gemini 2.0 Flash (Free)</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+            <div class="dropdown-item" data-value="meta-llama/llama-3.3-70b-instruct:free">
+              <span>Llama 3.3 70B (Free)</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+            <div class="dropdown-item" data-value="deepseek/deepseek-r1:free">
+              <span>DeepSeek R1 (Free)</span>
+              <span class="item-tag tag-free">100% FREE</span>
+            </div>
+
             <div class="dropdown-group-header">Anthropic</div>
             <div class="dropdown-item selected" data-value="anthropic/claude-sonnet-4">
               <span>Claude Sonnet 4</span>
@@ -127,6 +174,7 @@
     </section>
 
     <div class="actions">
+      <button id="start-youtube-btn" class="btn-secondary" style="display: none; margin-right: 8px;">Start Fact-Check</button>
       <button id="save-btn" class="btn-primary">Save Settings</button>
       <span id="save-status" class="save-status"></span>
     </div>

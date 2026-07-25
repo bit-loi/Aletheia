@@ -19,33 +19,101 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleArticleCheck(sender.tab?.id, msg.text, msg.title, msg.url);
     sendResponse({ ack: true });
   } else if (msg.type === 'START_YOUTUBE') {
-    handleYouTubeStart(sender.tab?.id);
+    const targetTabId = msg.tabId || sender.tab?.id;
+
+    (async () => {
+      // Immediately notify tab so floating overlay panel appears right away
+      if (targetTabId) {
+        await sendToTab(targetTabId, {
+          type: 'STATUS_UPDATE',
+          status: 'Starting audio capture…',
+          phase: 'youtube_live',
+        });
+      }
+
+      // Clean up existing offscreen session first to prevent "Cannot capture a tab with an active stream"
+      await handleYouTubeStop();
+
+      chrome.tabCapture.getMediaStreamId({ targetTabId: targetTabId }, (streamId) => {
+        if (chrome.runtime.lastError || !streamId) {
+          const errorMsg = chrome.runtime.lastError ? chrome.runtime.lastError.message : 'No streamId';
+          console.error('[Aletheia SW] tabCapture error:', errorMsg);
+          sendToTab(targetTabId, {
+            type: 'STATUS_UPDATE',
+            status: `Capture Error: ${errorMsg}. Refresh YouTube tab & retry.`,
+            phase: 'error',
+          });
+          return;
+        }
+        handleYouTubeStart(targetTabId, streamId);
+      });
+    })();
+
     sendResponse({ ack: true });
   } else if (msg.type === 'STOP_YOUTUBE') {
     handleYouTubeStop();
     sendResponse({ ack: true });
-  } else if (msg.type === 'PROCESS_TRANSCRIPT_CHUNK') {
-    handleTranscriptChunk(sender.tab?.id, msg.text);
+  } else if (msg.type === 'TRANSCRIPT_CHUNK' || msg.type === 'PROCESS_TRANSCRIPT_CHUNK') {
+    const tabId = sender.tab?.id || activeYouTubeTabId;
+    if (tabId) {
+      handleTranscriptChunk(tabId, msg.text);
+    }
+    sendResponse({ ack: true });
+  } else if (msg.type === 'OFFSCREEN_ERROR') {
+    const tabId = sender.tab?.id || activeYouTubeTabId;
+    if (tabId) {
+      sendToTab(tabId, {
+        type: 'STATUS_UPDATE',
+        status: `Transcription Error: ${msg.error}`,
+        phase: 'error',
+      });
+    }
     sendResponse({ ack: true });
   }
 
-  // Return true to keep the message channel open (allows async sendResponse,
-  // though we use tab messaging for results instead).
   return true;
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
+ * Ensures the content script is active on the tab (injects dynamically if needed).
+ */
+async function ensureContentScript(tabId) {
+  if (!tabId) return;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+  } catch (_) {
+    try {
+      await chrome.scripting.insertCSS({
+        target: { tabId },
+        files: ['content/content.css'],
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: [
+          'content/styles.js',
+          'content/extractor.js',
+          'content/overlay.js',
+          'content/content.js',
+        ],
+      });
+    } catch (e) {
+      console.warn('[Aletheia SW] Dynamic content script injection skipped:', e.message);
+    }
+  }
+}
+
+/**
  * Send a message to a specific tab's content script.
  */
-function sendToTab(tabId, message) {
+async function sendToTab(tabId, message) {
   if (!tabId) {
     console.warn('[Aletheia SW] No tabId, cannot send message:', message);
     return;
   }
+  await ensureContentScript(tabId);
   chrome.tabs.sendMessage(tabId, message).catch((err) => {
-    // Tab might have been closed or navigated away
     console.warn('[Aletheia SW] Failed to send to tab:', err.message);
   });
 }
@@ -166,25 +234,73 @@ async function handleArticleCheck(tabId, text, title, url) {
 // ─── YouTube Mode Handlers (Phase 5, stubs for now) ─────────────────────────
 
 let offscreenCreated = false;
+let activeYouTubeTabId = null;
 
-async function handleYouTubeStart(tabId) {
-  // Will be implemented in Phase 5:
-  // 1. Create offscreen document for tabCapture
-  // 2. Start audio capture + Deepgram streaming
-  // 3. Buffer transcripts and feed into pipeline
+async function handleYouTubeStart(tabId, streamId) {
+  activeYouTubeTabId = tabId;
+
+  const data = await chrome.storage.sync.get(['deepgramKey']);
+  const deepgramKey = data.deepgramKey ? data.deepgramKey.trim() : '';
+
+  if (!deepgramKey) {
+    sendToTab(tabId, {
+      type: 'STATUS_UPDATE',
+      status: 'Deepgram API Key required for YouTube mode. Configure in Settings (Extension Popup).',
+      phase: 'error',
+    });
+    return;
+  }
+
   sendToTab(tabId, {
     type: 'STATUS_UPDATE',
-    status: 'YouTube mode: coming soon. Use article mode for now.',
-    phase: 'youtube_stub',
+    status: 'Listening & transcribing YouTube audio...',
+    phase: 'youtube_live',
   });
+
+  try {
+    // 1. Ensure offscreen document exists
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+    });
+
+    if (existingContexts.length === 0) {
+      await chrome.offscreen.createDocument({
+        url: 'offscreen/offscreen.html',
+        reasons: ['USER_MEDIA'],
+        justification: 'Capturing tab audio for real-time transcription.',
+      });
+    }
+    offscreenCreated = true;
+
+    // 2. Send capture start message to offscreen
+    chrome.runtime.sendMessage({
+      type: 'OFFSCREEN_START_CAPTURE',
+      streamId: streamId,
+      deepgramKey: deepgramKey,
+    });
+  } catch (err) {
+    console.error('[Aletheia SW] Failed to start Offscreen document:', err);
+    sendToTab(tabId, {
+      type: 'STATUS_UPDATE',
+      status: `Offscreen error: ${err.message}`,
+      phase: 'error',
+    });
+  }
 }
 
-function handleYouTubeStop() {
-  // Clean up offscreen document
-  if (offscreenCreated) {
-    chrome.offscreen.closeDocument().catch(() => {});
-    offscreenCreated = false;
+async function handleYouTubeStop() {
+  try {
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+    });
+    if (existingContexts.length > 0) {
+      chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_CAPTURE' }).catch(() => {});
+      await chrome.offscreen.closeDocument().catch(() => {});
+    }
+  } catch (_) {
+    // Ignore close errors if document is not active
   }
+  offscreenCreated = false;
 }
 
 async function handleTranscriptChunk(tabId, text) {

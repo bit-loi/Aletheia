@@ -1,4 +1,5 @@
 // === Elements ===
+const geminiKeyInput = document.getElementById('gemini-key');
 const openrouterKeyInput = document.getElementById('openrouter-key');
 const tavilyKeyInput = document.getElementById('tavily-key');
 const deepgramKeyInput = document.getElementById('deepgram-key');
@@ -32,8 +33,7 @@ function setCustomDropdownValue(value) {
       item.classList.add('selected');
       found = true;
       const itemLabel = item.querySelector('span:first-child')?.textContent || item.textContent;
-      const tag = item.querySelector('.item-tag')?.textContent;
-      selectedModelText.textContent = tag ? `${itemLabel} (${tag})` : itemLabel;
+      selectedModelText.textContent = itemLabel;
     } else {
       item.classList.remove('selected');
     }
@@ -66,21 +66,24 @@ if (dropdownTrigger && dropdownMenu) {
 
 // === Load saved settings ===
 chrome.storage.sync.get(
-  ['openrouterKey', 'tavilyKey', 'deepgramKey', 'model', 'theme'],
+  ['geminiKey', 'openrouterKey', 'tavilyKey', 'deepgramKey', 'model', 'theme'],
   (data) => {
-    if (data.openrouterKey) {
+    if (data.geminiKey && geminiKeyInput) {
+      geminiKeyInput.value = data.geminiKey;
+    }
+    if (data.openrouterKey && openrouterKeyInput) {
       openrouterKeyInput.value = data.openrouterKey;
     }
-    if (data.tavilyKey) {
+    if (data.tavilyKey && tavilyKeyInput) {
       tavilyKeyInput.value = data.tavilyKey;
     }
-    if (data.deepgramKey) {
+    if (data.deepgramKey && deepgramKeyInput) {
       deepgramKeyInput.value = data.deepgramKey;
     }
     if (data.model) {
       setCustomDropdownValue(data.model);
     } else {
-      setCustomDropdownValue('anthropic/claude-sonnet-4');
+      setCustomDropdownValue('google/gemma-4-31b-it:free');
     }
     applyTheme(data.theme === 'light');
   }
@@ -96,6 +99,7 @@ themeToggle.addEventListener('change', () => {
 // === Save settings ===
 saveBtn.addEventListener('click', () => {
   const settings = {
+    geminiKey: geminiKeyInput ? geminiKeyInput.value.trim() : '',
     openrouterKey: openrouterKeyInput.value.trim(),
     tavilyKey: tavilyKeyInput.value.trim(),
     deepgramKey: deepgramKeyInput.value.trim(),
@@ -112,3 +116,36 @@ saveBtn.addEventListener('click', () => {
     }, 2000);
   });
 });
+
+// === YouTube Active Tab Trigger ===
+const startYoutubeBtn = document.getElementById('start-youtube-btn');
+
+if (startYoutubeBtn) {
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    if (tab && tab.url && tab.url.includes('youtube.com/watch')) {
+      startYoutubeBtn.style.display = 'inline-block';
+    } else {
+      startYoutubeBtn.style.display = 'none';
+    }
+  });
+
+  startYoutubeBtn.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab || !tab.id || !tab.url?.includes('youtube.com')) {
+      alert('Buka video YouTube terlebih dahulu!');
+      return;
+    }
+
+    // Send trigger to Service Worker
+    chrome.runtime.sendMessage({
+      type: 'START_YOUTUBE',
+      tabId: tab.id,
+    });
+
+    startYoutubeBtn.textContent = 'STARTED';
+    setTimeout(() => {
+      startYoutubeBtn.textContent = 'Start Fact-Check';
+    }, 2000);
+  });
+}

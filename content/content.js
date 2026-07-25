@@ -30,7 +30,7 @@
   function createTriggerButton(overlay) {
     const btn = document.createElement('button');
     btn.className = 'trigger-btn';
-    btn.innerHTML = '<span class="trigger-icon">&#x2713;</span> Check Facts';
+    btn.innerHTML = 'CHECK FACTS';
 
     btn.addEventListener('click', () => {
       btn.remove();
@@ -80,6 +80,7 @@
     chrome.runtime.onMessage.addListener((msg) => {
       switch (msg.type) {
         case 'STATUS_UPDATE':
+          overlay.show();
           overlay.setStatus(msg.status, true);
           if (msg.total) {
             overlay.setProgress(msg.current / msg.total);
@@ -87,11 +88,13 @@
           break;
 
         case 'CLAIMS_FOUND':
+          overlay.show();
           overlay.totalClaims = msg.count;
           overlay.setStatus(`Found ${msg.count} claims, checking...`, true);
           break;
 
         case 'CLAIM_RESULT':
+          overlay.show();
           overlay.addClaimCard(msg);
           if (overlay.totalClaims > 0) {
             overlay.setProgress(overlay.claimCount / overlay.totalClaims);
@@ -99,12 +102,14 @@
           break;
 
         case 'PIPELINE_COMPLETE':
+          overlay.show();
           overlay.setStatus(`Done: ${overlay.claimCount} claims checked`, false);
           overlay.setProgress(1);
           setTimeout(() => overlay.clearProgress(), 2000);
           break;
 
         case 'PIPELINE_ERROR':
+          overlay.show();
           overlay.setStatus('Error', false);
           overlay.clearProgress();
           overlay.showError(msg.error);
@@ -125,10 +130,7 @@
     setupMessageListener(overlay);
 
     if (isYouTubePage()) {
-      // YouTube mode: show panel immediately
-      overlay.show();
-      overlay.setStatus('YouTube mode: starting...', true);
-      chrome.runtime.sendMessage({ type: 'START_YOUTUBE' });
+      // YouTube mode: overlay listener ready, waiting for user trigger from popup
     } else if (hasArticleContent()) {
       // Article mode: show trigger button
       createTriggerButton(overlay);

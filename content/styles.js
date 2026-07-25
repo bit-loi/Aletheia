@@ -1,8 +1,8 @@
 /**
- * styles.js: Aletheia overlay theme constants.
+ * styles.js: Aletheia overlay theme constants & Shadow DOM stylesheet.
  *
- * Defines VERDICT_COLORS and SHADOW_STYLES used by the overlay UI.
- * Loaded first in the content script chain.
+ * Defines VERDICT_COLORS and SHADOW_STYLES for the overlay UI.
+ * Pure Monochrome High-Contrast Neo-Brutalist Design (#000000 / #FFFFFF).
  */
 
 window.Aletheia = window.Aletheia || {};
@@ -10,44 +10,46 @@ window.Aletheia = window.Aletheia || {};
 // ─── Verdict color palette ────────────────────────────────────────────────────
 
 window.Aletheia.VERDICT_COLORS = {
-  True:       { bg: 'rgba(34, 197, 94, 0.15)',  border: '#22c55e', text: '#4ade80', icon: 'T' },
-  False:      { bg: 'rgba(239, 68, 68, 0.15)',  border: '#ef4444', text: '#f87171', icon: 'F' },
-  Misleading: { bg: 'rgba(245, 158, 11, 0.15)', border: '#f59e0b', text: '#fbbf24', icon: '!' },
-  Unverified: { bg: 'rgba(156, 163, 175, 0.15)', border: '#6b7280', text: '#9ca3af', icon: '?' },
+  True:       { bg: '#064E3B', border: '#10B981', text: '#34D399', icon: 'TRUE' },
+  False:      { bg: '#7F1D1D', border: '#EF4444', text: '#FCA5A5', icon: 'FALSE' },
+  Misleading: { bg: '#78350F', border: '#F59E0B', text: '#FCD34D', icon: 'MISLEADING' },
+  Unverified: { bg: '#27272A', border: '#71717A', text: '#E4E4E7', icon: 'UNVERIFIED' },
 };
 
 // ─── Shadow DOM stylesheet ────────────────────────────────────────────────────
-// Everything here is injected inside the shadow root, fully isolated from the
-// host page's CSS. It's a long string by necessity (no external sheet inside
-// shadow DOM without a build step.
 
 window.Aletheia.SHADOW_STYLES = `
   :host {
     all: initial;
     position: fixed;
-    top: 16px;
-    right: 16px;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
     z-index: 2147483647;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-    font-size: 14px;
+    pointer-events: none;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px;
     line-height: 1.5;
-    color: #e2e8f0;
+    color: #ffffff;
   }
 
-  /* ── Panel container ── */
+  /* ── Panel container (Fixed Viewport Neo-Brutalist Box) ── */
   .aletheia-panel {
-    width: 380px;
-    max-height: 70vh;
-    background: rgba(15, 15, 25, 0.96);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 212, 170, 0.08);
+    position: fixed;
+    top: 100px;
+    right: 24px;
+    width: 370px;
+    max-height: 72vh;
+    background: #000000;
+    border: 2.5px solid #ffffff;
+    border-radius: 14px;
+    box-shadow: 4px 4px 0px #ffffff;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: auto;
+    transition: opacity 0.25s, transform 0.25s, background 0.2s, border-color 0.2s;
   }
 
   .aletheia-panel.hidden {
@@ -60,55 +62,79 @@ window.Aletheia.SHADOW_STYLES = `
     max-height: none;
   }
 
-  /* ── Light Theme ── */
+  /* ── Light Theme Overlay (Pure White & Black) ── */
   .aletheia-panel.light-theme {
-    background: rgba(255, 255, 255, 0.96);
-    border-color: rgba(0, 0, 0, 0.12);
-    color: #0f172a;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 168, 132, 0.1);
+    background: #ffffff;
+    border-color: #000000;
+    color: #000000;
+    box-shadow: 4px 4px 0px #000000;
   }
 
   .aletheia-panel.light-theme .panel-header {
-    border-bottom-color: rgba(0, 0, 0, 0.08);
+    background: #ffffff;
+    border-bottom-color: #000000;
   }
 
   .aletheia-panel.light-theme .logo-text {
-    color: #00a884;
+    color: #000000;
   }
 
   .aletheia-panel.light-theme .status-text {
-    background: rgba(0, 0, 0, 0.05);
-    color: #64748b;
+    color: #000000;
   }
 
   .aletheia-panel.light-theme .ctrl-btn {
-    color: #64748b;
+    background: #ffffff;
+    border-color: #000000;
+    color: #000000;
+    box-shadow: 2px 2px 0px #000000;
   }
 
   .aletheia-panel.light-theme .ctrl-btn:hover {
-    color: #0f172a;
-    background: rgba(0, 0, 0, 0.06);
+    background: #000000;
+    color: #ffffff;
   }
 
   .aletheia-panel.light-theme .progress-bar {
-    background: rgba(0, 0, 0, 0.06);
+    background: #f4f4f5;
+  }
+
+  .aletheia-panel.light-theme .progress-fill {
+    background: #000000;
   }
 
   .aletheia-panel.light-theme .claim-card {
-    background: rgba(0, 0, 0, 0.03);
-    border-color: rgba(0, 0, 0, 0.08);
+    background: #ffffff;
+    border-color: #000000;
+    box-shadow: 3px 3px 0px #000000;
+    color: #000000;
   }
 
   .aletheia-panel.light-theme .claim-text {
-    color: #1e293b;
+    color: #000000;
   }
 
   .aletheia-panel.light-theme .explanation {
-    color: #475569;
+    color: #27272a;
   }
 
   .aletheia-panel.light-theme .empty-state {
-    color: #64748b;
+    color: #000000;
+  }
+
+  .aletheia-panel.light-theme .confidence-badge {
+    background: #f4f4f5;
+    color: #000000;
+    border-color: #000000;
+  }
+
+  .aletheia-panel.light-theme .sources-toggle {
+    color: #000000;
+  }
+
+  .aletheia-panel.light-theme .sources-list a {
+    color: #000000;
+    font-weight: bold;
   }
 
   /* ── Header ── */
@@ -116,8 +142,9 @@ window.Aletheia.SHADOW_STYLES = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 10px 14px;
+    border-bottom: 2px solid #ffffff;
+    background: #000000;
     cursor: grab;
     user-select: none;
     flex-shrink: 0;
@@ -125,70 +152,90 @@ window.Aletheia.SHADOW_STYLES = `
 
   .header-left {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 260px;
+    overflow: hidden;
   }
 
   .logo-text {
-    font-size: 15px;
-    font-weight: 700;
-    color: #00D4AA;
-    letter-spacing: -0.3px;
+    font-size: 13px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
   }
 
   .status-text {
-    font-size: 12px;
-    color: #64748b;
-    margin-top: 1px;
+    font-size: 10px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 700;
+    color: #ffffff;
+    opacity: 0.9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 250px;
   }
 
   .status-text.active {
-    color: #00D4AA;
+    opacity: 1;
+    font-weight: 800;
   }
 
   .header-controls {
     display: flex;
-    gap: 4px;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   .ctrl-btn {
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #94a3b8;
-    font-size: 14px;
+    width: 24px;
+    height: 24px;
+    border: 1.5px solid #ffffff;
+    border-radius: 6px;
+    background: #000000;
+    color: #ffffff;
+    font-size: 12px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
     cursor: pointer;
+    box-shadow: 2px 2px 0px #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s, color 0.2s;
+    transition: transform 0.1s, background 0.15s, color 0.15s;
   }
 
   .ctrl-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #e2e8f0;
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .ctrl-btn:active {
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0px #ffffff;
   }
 
   /* ── Progress bar ── */
   .progress-bar {
-    height: 2px;
-    background: rgba(255, 255, 255, 0.04);
+    height: 3px;
+    background: #18181b;
     flex-shrink: 0;
     overflow: hidden;
   }
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #00D4AA, #00b4d8);
+    background: #ffffff;
     width: 0%;
-    transition: width 0.5s ease;
+    transition: width 0.4s ease;
   }
 
   .progress-fill.indeterminate {
     width: 40%;
-    animation: indeterminate 1.5s ease-in-out infinite;
+    animation: indeterminate 1.4s ease-in-out infinite;
   }
 
   @keyframes indeterminate {
@@ -200,36 +247,39 @@ window.Aletheia.SHADOW_STYLES = `
   .claims-feed {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 12px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
+    scrollbar-color: #ffffff #000000;
   }
 
-  .claims-feed::-webkit-scrollbar { width: 4px; }
-  .claims-feed::-webkit-scrollbar-track { background: transparent; }
-  .claims-feed::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  .claims-feed::-webkit-scrollbar { width: 6px; }
+  .claims-feed::-webkit-scrollbar-track { background: #000000; }
+  .claims-feed::-webkit-scrollbar-thumb { background: #ffffff; border-radius: 4px; }
 
   .empty-state {
     padding: 32px 16px;
     text-align: center;
-    color: #475569;
+    color: #ffffff;
     font-size: 13px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 700;
   }
 
   .empty-state .empty-icon {
-    font-size: 32px;
+    font-size: 28px;
     margin-bottom: 8px;
-    opacity: 0.5;
+    font-weight: 800;
   }
 
-  /* ── Claim card ── */
+  /* ── Claim card (Neo-Brutalist Box) ── */
   .claim-card {
     padding: 14px;
-    margin-bottom: 8px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.02);
-    animation: cardSlideIn 0.35s ease-out;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    border: 2px solid #ffffff;
+    background: #000000;
+    box-shadow: 3.5px 3.5px 0px #ffffff;
+    animation: cardSlideIn 0.3s ease-out;
   }
 
   @keyframes cardSlideIn {
@@ -248,47 +298,57 @@ window.Aletheia.SHADOW_STYLES = `
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
+    flex-wrap: wrap;
   }
 
   .verdict-badge {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 10px;
+    padding: 3px 8px;
     border-radius: 6px;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 10px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.8px;
+    border: 1.5px solid #ffffff;
     flex-shrink: 0;
   }
 
   .confidence-badge {
-    font-size: 10px;
-    color: #64748b;
+    font-size: 9.5px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
+    color: #ffffff;
     padding: 2px 6px;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.04);
+    background: #18181b;
+    border: 1px solid #3f3f46;
   }
 
   .cache-badge {
-    font-size: 10px;
-    color: #00D4AA;
+    font-size: 9.5px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
+    color: #10b981;
     padding: 2px 6px;
     border-radius: 4px;
-    background: rgba(0, 212, 170, 0.1);
+    background: #000000;
+    border: 1px solid #10b981;
   }
 
   .claim-text {
     font-size: 13px;
-    color: #cbd5e1;
+    font-weight: 700;
+    color: #ffffff;
     margin-bottom: 8px;
-    line-height: 1.55;
+    line-height: 1.5;
   }
 
   .explanation {
     font-size: 12px;
-    color: #94a3b8;
+    color: #ffffff;
+    opacity: 0.9;
     line-height: 1.5;
     margin-bottom: 8px;
   }
@@ -297,19 +357,21 @@ window.Aletheia.SHADOW_STYLES = `
   .sources-toggle {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     font-size: 11px;
-    color: #64748b;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #ffffff;
     cursor: pointer;
     border: none;
     background: none;
     padding: 4px 0;
-    font-family: inherit;
-    transition: color 0.2s;
+    transition: opacity 0.2s;
   }
 
   .sources-toggle:hover {
-    color: #94a3b8;
+    opacity: 0.8;
   }
 
   .sources-toggle .arrow {
@@ -333,63 +395,71 @@ window.Aletheia.SHADOW_STYLES = `
   }
 
   .sources-list li {
-    margin-bottom: 4px;
+    margin-bottom: 6px;
   }
 
   .sources-list a {
     font-size: 11px;
-    color: #00D4AA;
-    text-decoration: none;
+    color: #ffffff;
+    text-decoration: underline;
+    font-weight: 700;
     display: inline-flex;
     align-items: center;
     gap: 4px;
     word-break: break-all;
-    transition: color 0.2s;
   }
 
   .sources-list a:hover {
-    color: #00e8bb;
-    text-decoration: underline;
+    opacity: 0.8;
   }
 
   /* ── Error state ── */
   .error-card {
     padding: 14px;
     margin: 8px;
-    border-radius: 12px;
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    background: rgba(239, 68, 68, 0.08);
+    border-radius: 10px;
+    border: 2px solid #ef4444;
+    background: #000000;
+    box-shadow: 3.5px 3.5px 0px #ef4444;
     color: #f87171;
-    font-size: 13px;
-    animation: cardSlideIn 0.35s ease-out;
+    font-size: 12px;
+    font-weight: 600;
+    animation: cardSlideIn 0.3s ease-out;
   }
 
   .error-card .error-title {
-    font-weight: 600;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
+    text-transform: uppercase;
     margin-bottom: 4px;
   }
 
-  /* ── Minimized fab ── */
+  /* ── Minimized FAB ── */
   .aletheia-fab {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
-    background: rgba(15, 15, 25, 0.96);
-    border: 1px solid rgba(0, 212, 170, 0.3);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    position: fixed;
+    top: 100px;
+    right: 24px;
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    background: #000000;
+    border: 2.5px solid #ffffff;
+    box-shadow: 3.5px 3.5px 0px #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    font-size: 20px;
-    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: grab;
+    pointer-events: auto;
+    font-size: 18px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
+    color: #ffffff;
+    transition: transform 0.15s, box-shadow 0.15s;
   }
 
   .aletheia-fab:hover {
-    transform: scale(1.08);
-    box-shadow: 0 4px 24px rgba(0, 212, 170, 0.2);
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0px #ffffff;
   }
 
   .aletheia-fab.hidden {
@@ -398,15 +468,17 @@ window.Aletheia.SHADOW_STYLES = `
 
   .badge-count {
     position: absolute;
-    top: -4px;
-    right: -4px;
+    top: -6px;
+    right: -6px;
     width: 18px;
     height: 18px;
     border-radius: 50%;
     background: #ef4444;
     color: white;
     font-size: 10px;
-    font-weight: 700;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 800;
+    border: 1.5px solid #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -414,37 +486,35 @@ window.Aletheia.SHADOW_STYLES = `
 
   /* ── Trigger button (for articles) ── */
   .trigger-btn {
+    position: fixed;
+    top: 80px;
+    right: 24px;
+    pointer-events: auto;
     display: inline-flex;
     align-items: center;
     gap: 8px;
     padding: 10px 18px;
-    border: 1px solid rgba(0, 212, 170, 0.3);
-    border-radius: 12px;
-    background: rgba(15, 15, 25, 0.96);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    color: #00D4AA;
-    font-size: 13px;
-    font-weight: 600;
-    font-family: inherit;
+    border: 2.5px solid #ffffff;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #000000;
+    font-size: 12px;
+    font-weight: 800;
+    font-family: 'Courier New', Courier, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
     cursor: pointer;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    transition: all 0.2s;
+    box-shadow: 3.5px 3.5px 0px #ffffff;
+    transition: transform 0.1s, box-shadow 0.1s, background 0.15s;
   }
 
   .trigger-btn:hover {
-    background: rgba(0, 212, 170, 0.1);
-    border-color: #00D4AA;
-    box-shadow: 0 4px 24px rgba(0, 212, 170, 0.15);
-    transform: translateY(-1px);
+    background: #e4e4e7;
   }
 
   .trigger-btn:active {
-    transform: scale(0.97);
-  }
-
-  .trigger-btn .trigger-icon {
-    font-size: 16px;
+    transform: translate(2px, 2px);
+    box-shadow: 1.5px 1.5px 0px #ffffff;
   }
 
   /* ── Spinner ── */
@@ -452,8 +522,8 @@ window.Aletheia.SHADOW_STYLES = `
     display: inline-block;
     width: 12px;
     height: 12px;
-    border: 2px solid rgba(0, 212, 170, 0.2);
-    border-top-color: #00D4AA;
+    border: 2px solid #ffffff;
+    border-top-color: transparent;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }

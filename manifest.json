@@ -7,12 +7,16 @@
     "storage",
     "tabCapture",
     "offscreen",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
+    "*://*.youtube.com/*",
     "https://openrouter.ai/*",
     "https://api.tavily.com/*",
-    "https://api.deepgram.com/*"
+    "https://api.deepgram.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "service-worker.js",

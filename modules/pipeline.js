@@ -18,16 +18,17 @@
 export async function getSettings() {
   return new Promise((resolve, reject) => {
     chrome.storage.sync.get(
-      ['openrouterKey', 'tavilyKey', 'deepgramKey', 'model'],
+      ['openrouterKey', 'geminiKey', 'tavilyKey', 'deepgramKey', 'model'],
       (data) => {
         if (chrome.runtime.lastError) {
           return reject(new Error(chrome.runtime.lastError.message));
         }
         resolve({
           openrouterKey: data.openrouterKey || '',
+          geminiKey: data.geminiKey || '',
           tavilyKey: data.tavilyKey || '',
           deepgramKey: data.deepgramKey || '',
-          model: data.model || 'anthropic/claude-sonnet-4',
+          model: data.model || 'google/gemini-2.0-flash',
         });
       }
     );
@@ -50,6 +51,155 @@ function parseJSON(raw) {
   let cleaned = raw.trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   return JSON.parse(cleaned);
+}
+
+const FREE_MODEL_FALLBACKS = [
+  'google/gemma-4-31b-it:free',
+  'google/gemini-2.0-flash-exp:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'google/gemma-3-27b-it:free',
+  'deepseek/deepseek-r1:free',
+];
+
+/**
+ * Calls Google Gemini REST API directly using an AI Studio API key (AIzaSy... or AQ...).
+ */
+async function callGeminiAPI(geminiKey, modelName, promptText, temperature = 0.1, maxTokens = 1024) {
+  let primaryModel = 'gemini-2.0-flash';
+  if (modelName && modelName.includes('1.5-pro')) {
+    primaryModel = 'gemini-1.5-pro';
+  } else if (modelName && modelName.includes('1.5-flash')) {
+    primaryModel = 'gemini-1.5-flash';
+  } else if (modelName && modelName.includes('pro')) {
+    primaryModel = 'gemini-1.5-pro';
+  }
+
+  const modelsToTry = [primaryModel, 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  const uniqueModels = [...new Set(modelsToTry)];
+
+  let lastError = null;
+
+  for (const m of uniqueModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${geminiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: {
+            temperature: temperature,
+            maxOutputTokens: maxTokens,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Google Gemini API error (${res.status}): ${errBody.slice(0, 200)}`);
+      }
+
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        throw new Error('Gemini API returned an empty text response.');
+      }
+      return text;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[Aletheia] Gemini model ${m} failed, trying fallback:`, err.message);
+    }
+  }
+
+  throw lastError || new Error('All Gemini API model attempts failed.');
+}
+
+/**
+ * Call OpenRouter API with automatic fallback for free models on HTTP 429 rate limits.
+ */
+async function callLLMWithFallback(openrouterKey, model, messages, temperature = 0.1, maxTokens = 1024) {
+  const modelsToTry = [model];
+  if (model.endsWith(':free')) {
+    FREE_MODEL_FALLBACKS.forEach((m) => {
+      if (!modelsToTry.includes(m)) modelsToTry.push(m);
+    });
+  }
+
+  let lastError = null;
+
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const currentModel = modelsToTry[i];
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openrouterKey}`,
+          'HTTP-Referer': 'chrome-extension://aletheia',
+          'X-Title': 'Aletheia Fact-Checker',
+        },
+        body: JSON.stringify({
+          model: currentModel,
+          messages,
+          temperature,
+          max_tokens: maxTokens,
+        }),
+      });
+
+      if (res.status === 429 && i < modelsToTry.length - 1) {
+        console.warn(`[Aletheia] Model ${currentModel} rate limited (429), trying fallback ${modelsToTry[i + 1]}...`);
+        lastError = new Error(`OpenRouter API error (429): Model ${currentModel} is rate-limited.`);
+        continue;
+      }
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`OpenRouter API error (${res.status}): ${errBody.slice(0, 200)}`);
+      }
+
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error('LLM returned empty response.');
+      }
+      return content;
+    } catch (err) {
+      lastError = err;
+      if (!currentModel.endsWith(':free') || (err.message && !err.message.includes('429'))) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError || new Error('All model fallback attempts failed.');
+}
+
+/**
+ * High-level LLM router: prefers direct Gemini API if geminiKey is set,
+ * otherwise falls back to OpenRouter with model fallbacks.
+ */
+async function callLLM(prompt, temperature = 0.1, maxTokens = 1024) {
+  const { openrouterKey, geminiKey, model } = await getSettings();
+
+  if (geminiKey && geminiKey.trim()) {
+    console.log('[Aletheia] Calling direct Google Gemini API (AI Studio)...');
+    return await callGeminiAPI(geminiKey.trim(), model, prompt, temperature, maxTokens);
+  }
+
+  if (openrouterKey && openrouterKey.trim()) {
+    console.log('[Aletheia] Calling OpenRouter API...');
+    return await callLLMWithFallback(
+      openrouterKey.trim(),
+      model,
+      [{ role: 'user', content: prompt }],
+      temperature,
+      maxTokens
+    );
+  }
+
+  throw new Error(
+    'No LLM API Key set. Please enter your Google Gemini API Key (AI Studio) or OpenRouter API Key in the extension popup.'
+  );
 }
 
 // ─── Stage 1: Claim Extraction ────────────────────────────────────────────────
@@ -79,41 +229,13 @@ Text to analyze:
  * @returns {Promise<string[]>}  Array of claim strings.
  */
 export async function extractClaims(text) {
-  const { openrouterKey, model } = await getSettings();
-  requireKey(openrouterKey, 'OpenRouter');
-
   // Truncate extremely long texts to avoid blowing context window / cost.
   // ~12 000 chars ≈ 3 000 tokens, which is plenty for claim extraction.
   const truncated = text.length > 12000 ? text.slice(0, 12000) + '\n[…text truncated…]' : text;
 
   const prompt = CLAIM_EXTRACTION_PROMPT.replace('{TEXT}', truncated);
 
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${openrouterKey}`,
-      'HTTP-Referer': 'chrome-extension://aletheia',
-      'X-Title': 'Aletheia Fact-Checker',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1, // Low temperature for factual extraction
-      max_tokens: 1024,
-    }),
-  });
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    throw new Error(`OpenRouter API error (${res.status}): ${errBody.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('LLM returned empty response for claim extraction.');
-  }
+  const content = await callLLM(prompt, 0.1, 1024);
 
   try {
     const claims = parseJSON(content);
@@ -139,13 +261,17 @@ export async function extractClaims(text) {
 // ─── Stage 2: Evidence Retrieval ──────────────────────────────────────────────
 
 /**
- * Searches for evidence related to a single claim using the Tavily API.
- * @param {string} claim  A single claim string.
+ * Calls Tavily Search API to retrieve ground-truth snippets for a claim.
+ * @param {string} claim
  * @returns {Promise<Array<{title: string, url: string, snippet: string}>>}
  */
 export async function retrieveEvidence(claim) {
   const { tavilyKey } = await getSettings();
-  requireKey(tavilyKey, 'Tavily');
+
+  // If Tavily key is omitted, degrade gracefully (verdicts will be Unverified)
+  if (!tavilyKey) {
+    return [];
+  }
 
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
@@ -154,9 +280,8 @@ export async function retrieveEvidence(claim) {
       api_key: tavilyKey,
       query: claim,
       search_depth: 'basic',
-      max_results: 5,
+      max_results: 3,
       include_answer: false,
-      include_raw_content: false,
     }),
   });
 
@@ -206,9 +331,6 @@ Verdict definitions:
  * @returns {Promise<{verdict: string, explanation: string, confidence: string, key_sources: string[]}>}
  */
 export async function generateVerdict(claim, evidence) {
-  const { openrouterKey, model } = await getSettings();
-  requireKey(openrouterKey, 'OpenRouter');
-
   // Format evidence for the prompt
   const evidenceText =
     evidence.length > 0
@@ -219,32 +341,7 @@ export async function generateVerdict(claim, evidence) {
 
   const prompt = VERDICT_PROMPT.replace('{CLAIM}', claim).replace('{EVIDENCE}', evidenceText);
 
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${openrouterKey}`,
-      'HTTP-Referer': 'chrome-extension://aletheia',
-      'X-Title': 'Aletheia Fact-Checker',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.0, // Deterministic for verdicts
-      max_tokens: 512,
-    }),
-  });
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    throw new Error(`OpenRouter API error (${res.status}): ${errBody.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('LLM returned empty response for verdict.');
-  }
+  const content = await callLLM(prompt, 0.0, 512);
 
   try {
     const verdict = parseJSON(content);
