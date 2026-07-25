@@ -55,7 +55,32 @@ window.Aletheia.Overlay = class AletheiaOverlay {
     this.panel.classList.add('hidden');
     this.fab.classList.add('hidden');
 
+    this._initTheme();
+
     document.documentElement.appendChild(this.host);
+  }
+
+  /** Sync theme from storage & listen for live changes */
+  _initTheme() {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+      chrome.storage.sync.get(['theme'], (data) => {
+        if (data && data.theme === 'light') {
+          this.panel.classList.add('light-theme');
+        }
+      });
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'sync' && changes.theme) {
+          if (changes.theme.newValue === 'light') {
+            this.panel.classList.add('light-theme');
+          } else {
+            this.panel.classList.remove('light-theme');
+          }
+        }
+      });
+    }
   }
 
   /** Construct the main panel DOM. */

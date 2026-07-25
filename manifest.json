@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Aletheia",
   "version": "0.1.0",
-  "description": "AI-powered fact-checking overlay for news articles and YouTube videos",
+  "description": "AI Powered Real Time Fact Checking for News Videos and Web Articles",
   "permissions": [
     "storage",
     "tabCapture",

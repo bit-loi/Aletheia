@@ -60,6 +60,57 @@ window.Aletheia.SHADOW_STYLES = `
     max-height: none;
   }
 
+  /* ── Light Theme ── */
+  .aletheia-panel.light-theme {
+    background: rgba(255, 255, 255, 0.96);
+    border-color: rgba(0, 0, 0, 0.12);
+    color: #0f172a;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 168, 132, 0.1);
+  }
+
+  .aletheia-panel.light-theme .panel-header {
+    border-bottom-color: rgba(0, 0, 0, 0.08);
+  }
+
+  .aletheia-panel.light-theme .logo-text {
+    color: #00a884;
+  }
+
+  .aletheia-panel.light-theme .status-text {
+    background: rgba(0, 0, 0, 0.05);
+    color: #64748b;
+  }
+
+  .aletheia-panel.light-theme .ctrl-btn {
+    color: #64748b;
+  }
+
+  .aletheia-panel.light-theme .ctrl-btn:hover {
+    color: #0f172a;
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  .aletheia-panel.light-theme .progress-bar {
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  .aletheia-panel.light-theme .claim-card {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+
+  .aletheia-panel.light-theme .claim-text {
+    color: #1e293b;
+  }
+
+  .aletheia-panel.light-theme .explanation {
+    color: #475569;
+  }
+
+  .aletheia-panel.light-theme .empty-state {
+    color: #64748b;
+  }
+
   /* ── Header ── */
   .panel-header {
     display: flex;

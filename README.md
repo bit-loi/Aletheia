@@ -1,4 +1,4 @@
-# <img src="icons/Aletheia-Logo.jpeg" width="40" height="40" alt="Aletheia logo" align="center"> Aletheia
+# <img src="icons/Aletheia-Logo.png" width="40" height="40" alt="Aletheia logo" align="center"> Aletheia
 
 **AI-powered real-time fact-checking for news articles and YouTube videos.**
 
@@ -150,7 +150,7 @@ aletheia/
 |   +-- offscreen.js              # Tab audio capture + Deepgram WebSocket
 |
 |-- icons/
-|   |-- Aletheia-Logo.png         # Master logo asset
+|   |-- Aletheia-Logo.jpeg        # Master logo asset (white background)
 |   |-- icon16.png                # Chrome extension 16x16 icon
 |   |-- icon48.png                # Chrome extension 48x48 icon
 |   +-- icon128.png               # Chrome extension 128x128 icon

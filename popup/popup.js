@@ -3,36 +3,95 @@ const openrouterKeyInput = document.getElementById('openrouter-key');
 const tavilyKeyInput = document.getElementById('tavily-key');
 const deepgramKeyInput = document.getElementById('deepgram-key');
 const modelSelect = document.getElementById('model-select');
+const themeToggle = document.getElementById('theme-toggle');
 const saveBtn = document.getElementById('save-btn');
 const saveStatus = document.getElementById('save-status');
 
-const statusDots = {
-  openrouter: document.getElementById('openrouter-status'),
-  tavily: document.getElementById('tavily-status'),
-  deepgram: document.getElementById('deepgram-status'),
-};
+function applyTheme(isLight) {
+  if (isLight) {
+    document.body.classList.add('light-theme');
+    themeToggle.checked = true;
+  } else {
+    document.body.classList.remove('light-theme');
+    themeToggle.checked = false;
+  }
+}
+
+// === Custom Dropdown Logic ===
+const customDropdown = document.getElementById('custom-model-dropdown');
+const dropdownTrigger = document.getElementById('dropdown-trigger');
+const dropdownMenu = document.getElementById('dropdown-menu');
+const selectedModelText = document.getElementById('selected-model-text');
+
+function setCustomDropdownValue(value) {
+  modelSelect.value = value;
+  const items = dropdownMenu.querySelectorAll('.dropdown-item');
+  let found = false;
+  items.forEach((item) => {
+    if (item.dataset.value === value) {
+      item.classList.add('selected');
+      found = true;
+      const itemLabel = item.querySelector('span:first-child')?.textContent || item.textContent;
+      const tag = item.querySelector('.item-tag')?.textContent;
+      selectedModelText.textContent = tag ? `${itemLabel} (${tag})` : itemLabel;
+    } else {
+      item.classList.remove('selected');
+    }
+  });
+  if (!found && items.length > 0) {
+    items[0].classList.add('selected');
+    modelSelect.value = items[0].dataset.value;
+    selectedModelText.textContent = items[0].querySelector('span:first-child')?.textContent || items[0].textContent;
+  }
+}
+
+if (dropdownTrigger && dropdownMenu) {
+  dropdownTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    customDropdown.classList.toggle('open');
+  });
+
+  dropdownMenu.addEventListener('click', (e) => {
+    const item = e.target.closest('.dropdown-item');
+    if (!item) return;
+    const value = item.dataset.value;
+    setCustomDropdownValue(value);
+    customDropdown.classList.remove('open');
+  });
+
+  document.addEventListener('click', () => {
+    customDropdown.classList.remove('open');
+  });
+}
 
 // === Load saved settings ===
 chrome.storage.sync.get(
-  ['openrouterKey', 'tavilyKey', 'deepgramKey', 'model'],
+  ['openrouterKey', 'tavilyKey', 'deepgramKey', 'model', 'theme'],
   (data) => {
     if (data.openrouterKey) {
       openrouterKeyInput.value = data.openrouterKey;
-      statusDots.openrouter.classList.add('set');
     }
     if (data.tavilyKey) {
       tavilyKeyInput.value = data.tavilyKey;
-      statusDots.tavily.classList.add('set');
     }
     if (data.deepgramKey) {
       deepgramKeyInput.value = data.deepgramKey;
-      statusDots.deepgram.classList.add('set');
     }
     if (data.model) {
-      modelSelect.value = data.model;
+      setCustomDropdownValue(data.model);
+    } else {
+      setCustomDropdownValue('anthropic/claude-sonnet-4');
     }
+    applyTheme(data.theme === 'light');
   }
 );
+
+// === Theme toggle listener ===
+themeToggle.addEventListener('change', () => {
+  const isLight = themeToggle.checked;
+  applyTheme(isLight);
+  chrome.storage.sync.set({ theme: isLight ? 'light' : 'dark' });
+});
 
 // === Save settings ===
 saveBtn.addEventListener('click', () => {
@@ -41,16 +100,12 @@ saveBtn.addEventListener('click', () => {
     tavilyKey: tavilyKeyInput.value.trim(),
     deepgramKey: deepgramKeyInput.value.trim(),
     model: modelSelect.value,
+    theme: themeToggle.checked ? 'light' : 'dark',
   };
 
   chrome.storage.sync.set(settings, () => {
-    // Update status dots
-    statusDots.openrouter.classList.toggle('set', !!settings.openrouterKey);
-    statusDots.tavily.classList.toggle('set', !!settings.tavilyKey);
-    statusDots.deepgram.classList.toggle('set', !!settings.deepgramKey);
-
     // Flash confirmation
-    saveStatus.textContent = '✓ Saved';
+    saveStatus.textContent = 'SAVED';
     saveStatus.classList.add('visible');
     setTimeout(() => {
       saveStatus.classList.remove('visible');
