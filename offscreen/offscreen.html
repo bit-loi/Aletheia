@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Aletheia Offscreen</title>
+</head>
+<body>
+  <!-- 
+    Offscreen document for tab audio capture (YouTube mode).
+    This is a required MV3 pattern: tabCapture audio processing
+    must happen in a document context, not the service worker.
+    The actual logic lives in offscreen.js.
+  -->
+  <script src="offscreen.js"></script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aletheia Settings</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <div class="logo-row">
+        <img src="../icons/icon48.png" alt="Aletheia" class="logo-icon">
+        <div>
+          <h1>Aletheia</h1>
+          <p class="tagline">AI Fact-Checker</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="settings-section">
+      <h2>API Keys</h2>
+
+      <div class="field">
+        <label for="openrouter-key">
+          <span class="status-dot" id="openrouter-status"></span>
+          OpenRouter API Key
+        </label>
+        <input type="password" id="openrouter-key" placeholder="sk-or-…" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="tavily-key">
+          <span class="status-dot" id="tavily-status"></span>
+          Tavily API Key
+        </label>
+        <input type="password" id="tavily-key" placeholder="tvly-…" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="deepgram-key">
+          <span class="status-dot" id="deepgram-status"></span>
+          Deepgram API Key
+          <span class="optional-badge">YouTube mode</span>
+        </label>
+        <input type="password" id="deepgram-key" placeholder="dg-…" autocomplete="off">
+      </div>
+
+      <h2>Model</h2>
+      <div class="field">
+        <label for="model-select">LLM Model</label>
+        <select id="model-select">
+          <optgroup label="Anthropic (Multimodal)">
+            <option value="anthropic/claude-sonnet-4">Claude Sonnet 4 (Recommended)</option>
+            <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+            <option value="anthropic/claude-3-haiku">Claude 3 Haiku (Fast)</option>
+          </optgroup>
+          <optgroup label="Google (Multimodal)">
+            <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+            <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
+            <option value="google/gemini-2.0-flash">Gemini 2.0 Flash</option>
+          </optgroup>
+          <optgroup label="OpenAI (Multimodal)">
+            <option value="openai/gpt-4o">GPT-4o</option>
+            <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+            <option value="openai/gpt-4.1">GPT-4.1</option>
+            <option value="openai/gpt-4.1-mini">GPT-4.1 Mini</option>
+            <option value="openai/gpt-4.1-nano">GPT-4.1 Nano (Cheapest)</option>
+          </optgroup>
+          <optgroup label="Meta (Multimodal)">
+            <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
+            <option value="meta-llama/llama-4-scout">Llama 4 Scout</option>
+          </optgroup>
+          <optgroup label="DeepSeek (Text)">
+            <option value="deepseek/deepseek-r1">DeepSeek R1 (Reasoning)</option>
+            <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3</option>
+          </optgroup>
+        </select>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button id="save-btn" class="btn-primary">Save Settings</button>
+      <span id="save-status" class="save-status"></span>
+    </div>
+
+    <footer class="popup-footer">
+      <p>Enter your own API keys. They are stored locally in your browser and never sent anywhere except the respective API endpoints.</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

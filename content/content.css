@@ -1,0 +1,21 @@
+/*
+ * content.css — Minimal page-scope styles for the Aletheia host element.
+ *
+ * Almost everything is inside Shadow DOM (in content.js), so this file
+ * only handles the custom element positioning. Kept thin on purpose to
+ * avoid interfering with host page styles.
+ */
+
+aletheia-root {
+  /* Fixed positioning is also set via :host in the shadow, but we set it
+     here too as a fallback — some pages aggressively reset custom elements. */
+  position: fixed !important;
+  top: 16px !important;
+  right: 16px !important;
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+  /* Don't inherit anything from the host page */
+  all: initial !important;
+  display: block !important;
+  position: fixed !important;
+}

@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Aletheia",
+  "version": "0.1.0",
+  "description": "AI-powered fact-checking overlay for news articles and YouTube videos",
+  "permissions": [
+    "storage",
+    "tabCapture",
+    "offscreen",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://openrouter.ai/*",
+    "https://api.tavily.com/*",
+    "https://api.deepgram.com/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "content/styles.js",
+        "content/extractor.js",
+        "content/overlay.js",
+        "content/content.js"
+      ],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
