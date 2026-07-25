@@ -1,4 +1,4 @@
-# <img src="icons/Aletheia-Logo.png" width="40" height="40" alt="Aletheia logo" align="center"> Aletheia
+# <img src="icons/Aletheia-Logo.jpeg" width="40" height="40" alt="Aletheia logo" align="center"> Aletheia
 
 **AI-powered real-time fact-checking for news articles and YouTube videos.**
 
