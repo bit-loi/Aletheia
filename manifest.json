@@ -12,6 +12,7 @@
   ],
   "host_permissions": [
     "*://*.youtube.com/*",
+    "https://integrate.api.nvidia.com/*",
     "https://openrouter.ai/*",
     "https://api.tavily.com/*",
     "https://api.deepgram.com/*",

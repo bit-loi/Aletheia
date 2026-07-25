@@ -32,22 +32,14 @@
     </header>
 
     <section class="settings-section">
-      <h2>API Keys</h2>
+      <h2>API Keys & Model</h2>
 
       <div class="field">
-        <label for="gemini-key">
-          Google Gemini API Key
-          <span class="optional-badge">AI Studio</span>
+        <label for="nvidia-key">
+          NVIDIA API Key
+          <span class="optional-badge">MiniMax M3</span>
         </label>
-        <input type="password" id="gemini-key" placeholder="AQ.… or AIzaSy…" autocomplete="off">
-      </div>
-
-      <div class="field">
-        <label for="openrouter-key">
-          OpenRouter API Key
-          <span class="optional-badge">Alternative</span>
-        </label>
-        <input type="password" id="openrouter-key" placeholder="sk-or-…" autocomplete="off">
+        <input type="password" id="nvidia-key" placeholder="nvapi-…" autocomplete="off">
       </div>
 
       <div class="field">
@@ -63,112 +55,11 @@
         <input type="password" id="deepgram-key" placeholder="dg-…" autocomplete="off">
       </div>
 
-      <h2>Model</h2>
       <div class="field">
-        <label>LLM Model</label>
-        <input type="hidden" id="model-select" value="google/gemma-4-31b-it:free">
-        <div class="custom-dropdown" id="custom-model-dropdown">
-          <div class="dropdown-trigger" id="dropdown-trigger">
-            <span class="selected-text" id="selected-model-text">Gemma 4 31B (Free)</span>
-            <span class="dropdown-arrow">v</span>
-          </div>
-          <div class="dropdown-menu" id="dropdown-menu">
-            <div class="dropdown-group-header">Google Gemma (100% Free)</div>
-            <div class="dropdown-item selected" data-value="google/gemma-4-31b-it:free">
-              <span>Gemma 4 31B</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-            <div class="dropdown-item" data-value="google/gemma-4-26b-a4b:free">
-              <span>Gemma 4 26B A4B</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-            <div class="dropdown-item" data-value="google/gemma-3-27b-it:free">
-              <span>Gemma 3 27B</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-            <div class="dropdown-item" data-value="google/gemma-2-9b-it:free">
-              <span>Gemma 2 9B</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-            <div class="dropdown-item" data-value="google/gemma-3-4b-it:free">
-              <span>Gemma 3 4B</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-
-            <div class="dropdown-group-header">Other 100% Free Models</div>
-            <div class="dropdown-item" data-value="google/gemini-2.0-flash-exp:free">
-              <span>Gemini 2.0 Flash (Free)</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-            <div class="dropdown-item" data-value="meta-llama/llama-3.3-70b-instruct:free">
-              <span>Llama 3.3 70B (Free)</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-            <div class="dropdown-item" data-value="deepseek/deepseek-r1:free">
-              <span>DeepSeek R1 (Free)</span>
-              <span class="item-tag tag-free">100% FREE</span>
-            </div>
-
-            <div class="dropdown-group-header">Anthropic</div>
-            <div class="dropdown-item selected" data-value="anthropic/claude-sonnet-4">
-              <span>Claude Sonnet 4</span>
-              <span class="item-tag tag-recommended">RECOMMENDED</span>
-            </div>
-            <div class="dropdown-item" data-value="anthropic/claude-3.5-sonnet">
-              <span>Claude 3.5 Sonnet</span>
-            </div>
-            <div class="dropdown-item" data-value="anthropic/claude-3-haiku">
-              <span>Claude 3 Haiku</span>
-              <span class="item-tag tag-fast">FAST</span>
-            </div>
-
-            <div class="dropdown-group-header">Google</div>
-            <div class="dropdown-item" data-value="google/gemini-2.5-pro">
-              <span>Gemini 2.5 Pro</span>
-            </div>
-            <div class="dropdown-item" data-value="google/gemini-2.5-flash">
-              <span>Gemini 2.5 Flash</span>
-              <span class="item-tag tag-fast">FAST</span>
-            </div>
-            <div class="dropdown-item" data-value="google/gemini-2.0-flash">
-              <span>Gemini 2.0 Flash</span>
-            </div>
-
-            <div class="dropdown-group-header">OpenAI</div>
-            <div class="dropdown-item" data-value="openai/gpt-4o">
-              <span>GPT-4o</span>
-            </div>
-            <div class="dropdown-item" data-value="openai/gpt-4o-mini">
-              <span>GPT-4o Mini</span>
-            </div>
-            <div class="dropdown-item" data-value="openai/gpt-4.1">
-              <span>GPT-4.1</span>
-            </div>
-            <div class="dropdown-item" data-value="openai/gpt-4.1-mini">
-              <span>GPT-4.1 Mini</span>
-            </div>
-            <div class="dropdown-item" data-value="openai/gpt-4.1-nano">
-              <span>GPT-4.1 Nano</span>
-              <span class="item-tag tag-cheapest">CHEAPEST</span>
-            </div>
-
-            <div class="dropdown-group-header">Meta</div>
-            <div class="dropdown-item" data-value="meta-llama/llama-4-maverick">
-              <span>Llama 4 Maverick</span>
-            </div>
-            <div class="dropdown-item" data-value="meta-llama/llama-4-scout">
-              <span>Llama 4 Scout</span>
-            </div>
-
-            <div class="dropdown-group-header">DeepSeek</div>
-            <div class="dropdown-item" data-value="deepseek/deepseek-r1">
-              <span>DeepSeek R1</span>
-              <span class="item-tag tag-reasoning">REASONING</span>
-            </div>
-            <div class="dropdown-item" data-value="deepseek/deepseek-chat-v3-0324">
-              <span>DeepSeek V3</span>
-            </div>
-          </div>
+        <label>Active LLM Engine</label>
+        <div class="engine-badge-card">
+          <span class="engine-model-name">minimaxai/minimax-m3</span>
+          <span class="engine-tag">NVIDIA NIM</span>
         </div>
       </div>
     </section>
@@ -184,6 +75,6 @@
     </footer>
   </div>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

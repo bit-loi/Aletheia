@@ -29,7 +29,7 @@ let mediaRecorder = null;
 let deepgramSocket = null;
 let transcriptBuffer = '';
 let lastFlushTime = Date.now();
-const BUFFER_INTERVAL_MS = 6000; // 6-second windows for fast real-time claims
+const BUFFER_INTERVAL_MS = 15000; // 15-second windows to respect LLM rate limits and gather complete claims
 
 // ─── Capture logic ────────────────────────────────────────────────────────────
 
@@ -163,7 +163,7 @@ async function startCapture(streamId, deepgramKey) {
 
 function flushBuffer() {
   const text = transcriptBuffer.trim();
-  if (text.length > 20) {
+  if (text.length >= 40) {
     // Only send if there's meaningful content
     chrome.runtime.sendMessage({
       type: 'TRANSCRIPT_CHUNK',

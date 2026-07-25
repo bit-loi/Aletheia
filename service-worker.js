@@ -148,21 +148,29 @@ async function handleArticleCheck(tabId, text, title, url) {
       return;
     }
 
+    // Cap claims per chunk to top 3 to keep LLM API rate limits healthy
+    const targetClaims = claims.slice(0, 3);
+
     sendToTab(tabId, {
       type: 'CLAIMS_FOUND',
-      count: claims.length,
+      count: targetClaims.length,
     });
 
     // Step 2 & 3: For each claim, retrieve evidence + generate verdict
-    for (let i = 0; i < claims.length; i++) {
-      const claim = claims[i];
+    for (let i = 0; i < targetClaims.length; i++) {
+      const claim = targetClaims[i];
+
+      // Delay 1.5s between claims to prevent rapid-fire concurrency rate limits (429)
+      if (i > 0) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
 
       sendToTab(tabId, {
         type: 'STATUS_UPDATE',
-        status: `Checking claim ${i + 1} of ${claims.length}…`,
+        status: `Checking claim ${i + 1} of ${targetClaims.length}…`,
         phase: 'checking',
         current: i + 1,
-        total: claims.length,
+        total: targetClaims.length,
       });
 
       // Check cache first

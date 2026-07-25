@@ -1,4 +1,14 @@
+# Environment files & secret keys
+.env
+.env.local
+.env.*
+!.env.example
 
+# Editor & IDE configs
+.vscode/
+.idea/
+.github/instructions/codacy.instructions.md
 
-#Ignore vscode AI rules
-.github\instructions\codacy.instructions.md
+# OS metadata
+.DS_Store
+Thumbs.db
