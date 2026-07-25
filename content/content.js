@@ -24,24 +24,6 @@
   const { isYouTubePage, hasArticleContent, extractArticleText, Overlay } = window.Aletheia;
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // TRIGGER BUTTON (article pages)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  function createTriggerButton(overlay) {
-    const btn = document.createElement('button');
-    btn.className = 'trigger-btn';
-    btn.innerHTML = 'CHECK FACTS';
-
-    btn.addEventListener('click', () => {
-      btn.remove();
-      startArticleCheck(overlay);
-    });
-
-    overlay.shadow.appendChild(btn);
-    return btn;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
   // ARTICLE CHECK FLOW
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -73,11 +55,16 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // MESSAGE HANDLING (results from service worker)
+  // MESSAGE HANDLING (results from service worker & popup triggers)
   // ═══════════════════════════════════════════════════════════════════════════
 
   function setupMessageListener(overlay) {
     chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'START_ARTICLE_CHECK') {
+        startArticleCheck(overlay);
+        return;
+      }
+
       switch (msg.type) {
         case 'STATUS_UPDATE':
           overlay.show();
@@ -126,16 +113,13 @@
     // Don't run on extension pages, about:*, chrome:*, etc.
     if (!location.protocol.startsWith('http')) return;
 
+    // Clean up any stale old roots or buttons left over from previous script injections
+    document.querySelectorAll('aletheia-root, .trigger-btn').forEach((el) => el.remove());
+
     const overlay = new Overlay();
     setupMessageListener(overlay);
 
-    if (isYouTubePage()) {
-      // YouTube mode: overlay listener ready, waiting for user trigger from popup
-    } else if (hasArticleContent()) {
-      // Article mode: show trigger button
-      createTriggerButton(overlay);
-    }
-    // Otherwise: do nothing (page doesn't look like a news article)
+    // Overlay listener ready on all http/https pages, waiting for user trigger from popup
   }
 
   // Wait for DOM readiness

@@ -60,34 +60,34 @@ saveBtn.addEventListener('click', () => {
   });
 });
 
-// === YouTube Active Tab Trigger ===
-const startYoutubeBtn = document.getElementById('start-youtube-btn');
+// === Active Tab Fact-Check Trigger ===
+const startFactCheckBtn = document.getElementById('start-youtube-btn');
 
-if (startYoutubeBtn) {
-  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-    if (tab && tab.url && tab.url.includes('youtube.com/watch')) {
-      startYoutubeBtn.style.display = 'inline-block';
-    } else {
-      startYoutubeBtn.style.display = 'none';
-    }
-  });
+if (startFactCheckBtn) {
+  startFactCheckBtn.style.display = 'inline-block';
 
-  startYoutubeBtn.addEventListener('click', async () => {
+  startFactCheckBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    if (!tab || !tab.id || !tab.url?.includes('youtube.com')) {
-      alert('Buka video YouTube terlebih dahulu!');
+    if (!tab || !tab.id || !tab.url || !tab.url.startsWith('http')) {
+      alert('Buka halaman web berita atau video YouTube terlebih dahulu!');
       return;
     }
 
-    chrome.runtime.sendMessage({
-      type: 'START_YOUTUBE',
-      tabId: tab.id,
-    });
+    if (tab.url.includes('youtube.com/watch')) {
+      chrome.runtime.sendMessage({
+        type: 'START_YOUTUBE',
+        tabId: tab.id,
+      });
+    } else {
+      chrome.tabs.sendMessage(tab.id, { type: 'START_ARTICLE_CHECK' }).catch(() => {
+        alert('Refresh halaman web ini untuk memulai cek fakta!');
+      });
+    }
 
-    startYoutubeBtn.textContent = 'STARTED';
+    startFactCheckBtn.textContent = 'STARTED';
     setTimeout(() => {
-      startYoutubeBtn.textContent = 'Start Fact-Check';
+      startFactCheckBtn.textContent = 'Start Fact-Check';
     }, 2000);
   });
 }

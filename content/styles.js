@@ -484,39 +484,6 @@ window.Aletheia.SHADOW_STYLES = `
     justify-content: center;
   }
 
-  /* ── Trigger button (for articles) ── */
-  .trigger-btn {
-    position: fixed;
-    top: 80px;
-    right: 24px;
-    pointer-events: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 18px;
-    border: 2.5px solid #ffffff;
-    border-radius: 10px;
-    background: #ffffff;
-    color: #000000;
-    font-size: 12px;
-    font-weight: 800;
-    font-family: 'Courier New', Courier, monospace;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    cursor: pointer;
-    box-shadow: 3.5px 3.5px 0px #ffffff;
-    transition: transform 0.1s, box-shadow 0.1s, background 0.15s;
-  }
-
-  .trigger-btn:hover {
-    background: #e4e4e7;
-  }
-
-  .trigger-btn:active {
-    transform: translate(2px, 2px);
-    box-shadow: 1.5px 1.5px 0px #ffffff;
-  }
-
   /* ── Spinner ── */
   .spinner {
     display: inline-block;
