@@ -29,7 +29,7 @@ let mediaRecorder = null;
 let deepgramSocket = null;
 let transcriptBuffer = '';
 let lastFlushTime = Date.now();
-const BUFFER_INTERVAL_MS = 15000; // 15-second windows to respect LLM rate limits and gather complete claims
+const BUFFER_INTERVAL_MS = 5000; // 5-second fast windows for video demo real-time responsiveness
 
 // ─── Capture logic ────────────────────────────────────────────────────────────
 
