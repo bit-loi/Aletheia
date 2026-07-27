@@ -24,8 +24,8 @@ const post = (path, body, origin = ORIGIN) =>
   });
 
 let failures = 0;
-async function check(name, req, expect) {
-  const res = await worker.fetch(req, env);
+async function check(name, req, expect, testEnv = env) {
+  const res = await worker.fetch(req, testEnv);
   const text = await res.text();
   let parsed;
   try { parsed = JSON.parse(text); } catch { parsed = text; }
@@ -72,6 +72,29 @@ await check(
   post('/v1/chat', { messages: [{ role: 'user', content: 'hi' }] }),
   (r, b) => r.status === 503 && b.error === 'all providers unavailable'
 );
+
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  if (String(input) === 'https://generativelanguage.googleapis.com/v1alpha/auth_tokens') {
+    const authorized = init?.headers?.['x-goog-api-key'] === 'server-only-secret';
+    return authorized
+      ? new Response(JSON.stringify({ name: 'short-lived-gemini-token' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      : new Response(null, { status: 401 });
+  }
+  return realFetch(input, init);
+};
+await check(
+  'Gemini server secret exchanges for a short-lived Live token',
+  post('/v1/gemini-live-token', {}),
+  (r, b) => r.status === 200 &&
+    b.token === 'short-lived-gemini-token' &&
+    !JSON.stringify(b).includes('server-only-secret'),
+  { ...env, GEMINI_API_KEY: 'server-only-secret' }
+);
+globalThis.fetch = realFetch;
 
 await check(
   'unknown route 404s',

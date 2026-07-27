@@ -10,6 +10,7 @@
 
 import { extractClaims, retrieveEvidence, generateVerdict } from './modules/pipeline.js';
 import { getCachedVerdict, cacheVerdict } from './modules/cache.js';
+import { CONFIG } from './config.js';
 
 // ─── Message Router ───────────────────────────────────────────────────────────
 
@@ -69,6 +70,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       });
     }
     sendResponse({ ack: true });
+  } else if (msg.type === 'STATUS_UPDATE' && !sender.tab) {
+    // Offscreen documents have no sender.tab. Relay their capture/transcription
+    // status to the YouTube tab instead of silently dropping it.
+    if (activeYouTubeTabId) {
+      sendToTab(activeYouTubeTabId, msg);
+    }
+    sendResponse({ ack: true });
+  } else if (msg.type === 'GET_GEMINI_LIVE_TOKEN' && !sender.tab) {
+    getGeminiLiveToken()
+      .then((token) => sendResponse({ token }))
+      .catch((err) => sendResponse({ error: err.message }));
   }
 
   return true;
@@ -139,106 +151,7 @@ async function handleArticleCheck(tabId, text, title, url) {
     // article. The outer handler turns a throw into PIPELINE_ERROR, which the
     // overlay renders as a real error with a retry.
     const claims = await extractClaims(text);
-
-    if (!claims || claims.length === 0) {
-      // Terminal, not a failure. This previously sent a youtube_live STATUS_UPDATE
-      // and returned with no terminal message at all, so an article with no
-      // checkable claims left the overlay stuck on "Listening & transcribing
-      // audio…" forever, which is also the wrong copy for article mode.
-      //
-      // Additive fields: older content scripts ignore claimsFound/mode and just
-      // see a normal completion.
-      sendToTab(tabId, {
-        type: 'PIPELINE_COMPLETE',
-        claimsFound: 0,
-        mode: title === 'YouTube transcript' ? 'youtube' : 'article',
-      });
-      return;
-    }
-
-    // Cap claims per chunk to top 2 for ultra-fast demo response
-    const targetClaims = claims.slice(0, 2);
-
-    sendToTab(tabId, {
-      type: 'CLAIMS_FOUND',
-      count: targetClaims.length,
-    });
-
-    // Step 2 & 3: For each claim, retrieve evidence + generate verdict
-    for (let i = 0; i < targetClaims.length; i++) {
-      const claim = targetClaims[i];
-
-      // Fast 200ms inter-claim delay for ultra-fast demo cards
-      if (i > 0) {
-        await new Promise((r) => setTimeout(r, 200));
-      }
-
-      sendToTab(tabId, {
-        type: 'STATUS_UPDATE',
-        status: `Checking claim ${i + 1} of ${targetClaims.length}…`,
-        phase: 'checking',
-        current: i + 1,
-        total: targetClaims.length,
-      });
-
-      // Check cache first
-      try {
-        const cached = await getCachedVerdict(claim);
-        if (cached) {
-          sendToTab(tabId, {
-            type: 'CLAIM_RESULT',
-            claim,
-            ...cached,
-            fromCache: true,
-          });
-          continue;
-        }
-      } catch (_) {
-        // Cache miss, continue to live check
-      }
-
-      // Retrieve evidence
-      let evidence = [];
-      try {
-        evidence = await retrieveEvidence(claim);
-      } catch (err) {
-        console.warn(`[Aletheia SW] Evidence retrieval failed for claim "${claim.slice(0, 50)}…":`, err);
-        // Continue with empty evidence; verdict will likely be "Unverified"
-      }
-
-      // Generate verdict
-      try {
-        const result = await generateVerdict(claim, evidence);
-
-        // Cache the result
-        try {
-          await cacheVerdict(claim, result);
-        } catch (_) {
-          // Caching failure is non-critical
-        }
-
-        sendToTab(tabId, {
-          type: 'CLAIM_RESULT',
-          claim,
-          ...result,
-          fromCache: false,
-        });
-      } catch (err) {
-        console.warn(`[Aletheia SW] Verdict generation failed for claim "${claim.slice(0, 50)}…":`, err);
-        sendToTab(tabId, {
-          type: 'CLAIM_RESULT',
-          claim,
-          verdict: 'Unverified',
-          explanation: `Could not generate a verdict: ${err.message}`,
-          confidence: 'Low',
-          key_sources: [],
-          fromCache: false,
-        });
-      }
-    }
-
-    // All done
-    sendToTab(tabId, { type: 'PIPELINE_COMPLETE' });
+    await processClaims(tabId, claims, title === 'YouTube transcript' ? 'youtube' : 'article');
   } catch (err) {
     sendToTab(tabId, {
       type: 'PIPELINE_ERROR',
@@ -247,21 +160,99 @@ async function handleArticleCheck(tabId, text, title, url) {
   }
 }
 
-// ─── YouTube Mode Handlers (Phase 5, stubs for now) ─────────────────────────
+async function processClaims(tabId, claims, mode) {
+  if (!claims?.length) {
+    sendToTab(tabId, {
+      type: 'PIPELINE_COMPLETE',
+      claimsFound: 0,
+      mode,
+    });
+    return;
+  }
 
-let offscreenCreated = false;
+  const targetClaims = claims.slice(0, 2);
+  sendToTab(tabId, { type: 'CLAIMS_FOUND', count: targetClaims.length });
+
+  for (let i = 0; i < targetClaims.length; i++) {
+    const claim = targetClaims[i];
+    if (i > 0) await new Promise((resolve) => setTimeout(resolve, 200));
+
+    sendToTab(tabId, {
+      type: 'STATUS_UPDATE',
+      status: `Checking claim ${i + 1} of ${targetClaims.length}…`,
+      phase: 'checking',
+      current: i + 1,
+      total: targetClaims.length,
+    });
+
+    try {
+      const cached = await getCachedVerdict(claim);
+      if (cached) {
+        sendToTab(tabId, { type: 'CLAIM_RESULT', claim, ...cached, fromCache: true });
+        continue;
+      }
+    } catch (_) {
+      // Cache miss, continue to a live check.
+    }
+
+    let evidence = [];
+    try {
+      evidence = await retrieveEvidence(claim);
+    } catch (err) {
+      console.warn(`[Aletheia SW] Evidence retrieval failed for "${claim.slice(0, 50)}…":`, err);
+    }
+
+    try {
+      const result = await generateVerdict(claim, evidence);
+      try {
+        await cacheVerdict(claim, result);
+      } catch (_) {
+        // Caching failure is non-critical.
+      }
+      sendToTab(tabId, { type: 'CLAIM_RESULT', claim, ...result, fromCache: false });
+    } catch (err) {
+      console.warn(`[Aletheia SW] Verdict generation failed for "${claim.slice(0, 50)}…":`, err);
+      sendToTab(tabId, {
+        type: 'CLAIM_RESULT',
+        claim,
+        verdict: 'Unverified',
+        explanation: `Could not generate a verdict: ${err.message}`,
+        confidence: 'Low',
+        key_sources: [],
+        fromCache: false,
+      });
+    }
+  }
+
+  sendToTab(tabId, { type: 'PIPELINE_COMPLETE', mode });
+}
+
+// ─── YouTube Mode Handlers ───────────────────────────────────────────────────
+
 let activeYouTubeTabId = null;
+
+async function getGeminiLiveToken() {
+  const response = await fetch(`${CONFIG.PROXY_URL}/v1/gemini-live-token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.token) {
+    throw new Error(payload.error || 'Gemini Live is unavailable');
+  }
+  return payload.token;
+}
 
 async function handleYouTubeStart(tabId, streamId) {
   activeYouTubeTabId = tabId;
 
-  const data = await chrome.storage.sync.get(['deepgramKey']);
-  const deepgramKey = data.deepgramKey ? data.deepgramKey.trim() : '';
-
-  if (!deepgramKey) {
+  let token;
+  try {
+    token = await getGeminiLiveToken();
+  } catch (err) {
     sendToTab(tabId, {
       type: 'STATUS_UPDATE',
-      status: 'Deepgram API Key required for YouTube mode. Configure in Settings (Extension Popup).',
+      status: err.message,
       phase: 'error',
     });
     return;
@@ -286,13 +277,12 @@ async function handleYouTubeStart(tabId, streamId) {
         justification: 'Capturing tab audio for real-time transcription.',
       });
     }
-    offscreenCreated = true;
-
     // 2. Send capture start message to offscreen
     chrome.runtime.sendMessage({
       type: 'OFFSCREEN_START_CAPTURE',
       streamId: streamId,
-      deepgramKey: deepgramKey,
+      geminiLiveToken: token,
+      geminiLiveModel: CONFIG.GEMINI_LIVE_MODEL,
     });
   } catch (err) {
     console.error('[Aletheia SW] Failed to start Offscreen document:', err);
@@ -316,12 +306,12 @@ async function handleYouTubeStop() {
   } catch (_) {
     // Ignore close errors if document is not active
   }
-  offscreenCreated = false;
+  activeYouTubeTabId = null;
 }
 
 async function handleTranscriptChunk(tabId, text) {
-  // Will be implemented in Phase 5
-  // For now, just run the article pipeline on the chunk
+  // Spoken claims use the same extraction → evidence → verdict pipeline as an
+  // article; the source text simply arrives in short transcript windows.
   await handleArticleCheck(tabId, text, 'YouTube transcript', '');
 }
 

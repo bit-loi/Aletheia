@@ -8,7 +8,9 @@ A key bundled into a browser extension is a **published** key. The package is a 
 
 So the extension ships with no keys. It calls this Worker, which holds them.
 
-Users can still enter their own keys in the extension popup. That path bypasses the proxy entirely and keeps their traffic off the shared quota.
+The popup is a one-click launch panel, not a credential form. Article requests
+use Gemini and Tavily through the proxy. YouTube tab audio streams directly to
+Gemini Live with a short-lived token.
 
 ## Where to deploy
 
@@ -94,6 +96,7 @@ Then set two things:
 |---|---|---|---|
 | `POST` | `/v1/chat` | `{messages, temperature?, max_tokens?}` | `{content, provider}` |
 | `POST` | `/v1/search` | `{query, max_results?}` | `{results: [{title, url, snippet}]}` |
+| `POST` | `/v1/gemini-live-token` | | `{token}` |
 | `GET` | `/health` | | `ok` |
 
 ## Provider chains

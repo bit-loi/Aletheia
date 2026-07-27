@@ -7,9 +7,10 @@
  * everyone's. This Worker exists so users can install and go.
  *
  * Endpoints
- *   POST /v1/chat    OpenAI-shaped chat completion, tried across a provider chain
- *   POST /v1/search  Tavily search
- *   GET  /health     liveness
+ *   POST /v1/chat            OpenAI-shaped chat completion
+ *   POST /v1/search          evidence search
+ *   POST /v1/gemini-live-token short-lived browser credential for live audio
+ *   GET  /health             liveness
  *
  * Bindings (see wrangler.jsonc)
  *   env.RL               rate limiter
@@ -292,6 +293,48 @@ async function handleSearch(request, env, origin) {
   return json({ results: [], attempts }, 200, origin);
 }
 
+/**
+ * Mint a short-lived Gemini Live credential so tab audio can travel directly
+ * from the extension to Google's WebSocket without exposing the permanent key.
+ */
+async function handleGeminiLiveToken(env, origin) {
+  if (!env.GEMINI_API_KEY) {
+    return json({ error: 'Gemini Live is not configured' }, 503, origin);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    const now = Date.now();
+    const response = await fetch('https://generativelanguage.googleapis.com/v1alpha/auth_tokens', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': env.GEMINI_API_KEY,
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        uses: 1,
+        newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
+        expireTime: new Date(now + 20 * 60 * 1000).toISOString(),
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.log(JSON.stringify({ event: 'gemini_live_token_failed', status: response.status }));
+      return json({ error: 'Gemini Live is unavailable' }, 502, origin);
+    }
+    const data = await response.json();
+    if (!data.name) return json({ error: 'Gemini returned no live token' }, 502, origin);
+    return json({ token: data.name }, 200, origin);
+  } catch (err) {
+    const detail = err.name === 'AbortError' ? 'timeout' : 'network';
+    console.log(JSON.stringify({ event: 'gemini_live_token_failed', detail }));
+    return json({ error: 'Gemini Live is unavailable' }, 502, origin);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -329,6 +372,7 @@ export default {
     try {
       if (url.pathname === '/v1/chat') return await handleChat(request, env, origin);
       if (url.pathname === '/v1/search') return await handleSearch(request, env, origin);
+      if (url.pathname === '/v1/gemini-live-token') return await handleGeminiLiveToken(env, origin);
       return json({ error: 'not found' }, 404, origin);
     } catch (err) {
       // Explicit handling rather than passThroughOnException, which would hide
