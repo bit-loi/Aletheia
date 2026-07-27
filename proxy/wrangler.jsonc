@@ -12,10 +12,11 @@
   },
 
   "vars": {
-    // Comma-separated chrome-extension:// origins allowed to call this proxy.
-    // Set to your unpacked/published extension id. See the note on spoofing in
-    // src/index.js — this is abuse friction, not authentication.
-    "ALLOWED_ORIGINS": "chrome-extension://kocekjjgeahfmeolkkffcnbdjnpapdkb",
+    // All valid Chrome extension origins may call the shared proxy, so unpacked
+    // installs work even though Chrome derives a different id from each path.
+    // See the note on spoofing in src/index.js — the rate limiter is the actual
+    // abuse bound.
+    "ALLOWED_ORIGINS": "chrome-extension://*",
 
     // Provider chain, tried in order. All are OpenAI-compatible /chat/completions.
     "LLM_CHAIN": "gemini,groq",

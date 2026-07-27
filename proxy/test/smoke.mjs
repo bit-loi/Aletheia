@@ -11,7 +11,7 @@ const ORIGIN = 'chrome-extension://kocekjjgeahfmeolkkffcnbdjnpapdkb';
 
 // No RL binding and no keys, exactly like a fresh Vercel deployment.
 const env = {
-  ALLOWED_ORIGINS: ORIGIN,
+  ALLOWED_ORIGINS: 'chrome-extension://*',
   LLM_CHAIN: 'gemini,groq',
   SEARCH_CHAIN: 'tavily,wikipedia',
 };
@@ -42,6 +42,12 @@ await check('health is open', new Request('https://proxy.test/health'), (r) => r
 await check(
   'rejects a foreign origin',
   post('/v1/search', { query: 'x' }, 'https://evil.example'),
+  (r, b) => r.status === 403 && b.error === 'origin not allowed'
+);
+
+await check(
+  'rejects a malformed extension origin',
+  post('/v1/search', { query: 'x' }, 'chrome-extension://evil'),
   (r, b) => r.status === 403 && b.error === 'origin not allowed'
 );
 

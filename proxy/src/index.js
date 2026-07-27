@@ -13,9 +13,10 @@
  *
  * Bindings (see wrangler.jsonc)
  *   env.RL               rate limiter
- *   env.ALLOWED_ORIGINS  comma-separated chrome-extension:// origins
+ *   env.ALLOWED_ORIGINS  comma-separated chrome-extension:// origins; supports
+ *                        chrome-extension://* for unpacked installs
  *   env.LLM_CHAIN        comma-separated provider ids, in preference order
- *   env.NVIDIA_API_KEY / env.GROQ_API_KEY / env.TAVILY_API_KEY  (secrets)
+ *   env.GEMINI_API_KEY / env.GROQ_API_KEY / env.TAVILY_API_KEY  (secrets)
  */
 
 /**
@@ -91,7 +92,10 @@ function allowedOrigin(request, env) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return allowed.includes(origin) ? origin : null;
+  const isChromeExtension = /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
+  const matches = allowed.includes(origin) ||
+    (allowed.includes('chrome-extension://*') && isChromeExtension);
+  return matches ? origin : null;
 }
 
 /** Read a JSON body with a hard size cap. */

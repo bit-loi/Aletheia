@@ -137,10 +137,10 @@ By revealing source provenance, logic pathways, and underlying evidence for ever
 
 ### 1. Prerequisites
 - Google Chrome (or any Chromium-based browser)
-- API Keys:
-  - **NVIDIA NIM** (LLM Engine: `minimaxai/minimax-m3`) — [build.nvidia.com](https://build.nvidia.com/)
-  - **Tavily** (Web Search Evidence) — [app.tavily.com](https://app.tavily.com/)
-  - **Deepgram** (Speech-to-Text for YouTube mode) — [console.deepgram.com](https://console.deepgram.com/)
+- No API keys are required for article fact-checking. The hosted proxy provides
+  Gemini and Tavily on a shared, rate-limited quota.
+- A **Deepgram** key is currently required only for YouTube audio mode. Get one
+  from [console.deepgram.com](https://console.deepgram.com/).
 
 ### 2. Installation
 1. Clone or download this repository:
@@ -151,13 +151,12 @@ By revealing source provenance, logic pathways, and underlying evidence for ever
 3. Enable **Developer mode** (top-right toggle)
 4. Click **Load unpacked** and select the `Aletheia/` folder.
 
-### 3. Configure API Keys
-1. Click the **Aletheia icon** in the Chrome toolbar.
-2. Enter your **NVIDIA API Key** and **Tavily API Key**.
-3. Enter your **Deepgram API Key** (for YouTube mode).
-4. Click **Save Settings**.
-
-> *Note: For local development, copy `.env.example` to `.env`. Production keys are stored locally & securely in `chrome.storage.sync` and are never committed to Git.*
+### 3. Start Fact-Checking
+1. Open a news article and click the **Aletheia icon**.
+2. Click **Start Fact-Check**. No Gemini or Tavily setup is required.
+3. Optional: add personal Gemini and Tavily keys in Settings to bypass the
+   shared quota. Personal keys stay in `chrome.storage.sync`.
+4. Add a Deepgram key only when using YouTube audio mode.
 
 ---
 
@@ -171,7 +170,7 @@ aletheia/
 |-- .env.example                  # Environment template file
 |
 |-- modules/
-|   |-- pipeline.js               # 3-stage fact-checking pipeline (NVIDIA NIM + Tavily)
+|   |-- pipeline.js               # 3-stage fact-checking pipeline (Gemini + Tavily)
 |   +-- cache.js                  # SHA-256 verdict caching (chrome.storage.local)
 |
 |-- content/

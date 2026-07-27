@@ -14,7 +14,7 @@ export const CONFIG = {
    * Users may still supply their own keys in the popup, which bypasses this
    * entirely and keeps their traffic off the shared quota.
    */
-  PROXY_URL: 'https://aletheia-proxy.workers.dev',
+  PROXY_URL: 'https://aletheia-proxy.rizkymirza18.workers.dev',
 
   /** Optional personal key, entered in the popup. Keep empty in source. */
   LLM_API_KEY: '',

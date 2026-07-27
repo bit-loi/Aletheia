@@ -44,7 +44,7 @@ curl localhost:8000/health
 |---|---|---|
 | `GEMINI_API_KEY` | | yes |
 | `TAVILY_API_KEY` | | yes |
-| `ALLOWED_ORIGINS` | `chrome-extension://<id>` | no |
+| `ALLOWED_ORIGINS` | `chrome-extension://*` | no |
 | `LLM_CHAIN` | `gemini,groq` | no |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | no |
 | `SEARCH_CHAIN` | `tavily,wikipedia` | no |
@@ -74,7 +74,7 @@ npm install -g wrangler        # or npx wrangler
 wrangler login
 
 # Secrets - never put these in wrangler.jsonc
-wrangler secret put NVIDIA_API_KEY
+wrangler secret put GEMINI_API_KEY
 wrangler secret put GROQ_API_KEY          # optional, second in the chain
 wrangler secret put TAVILY_API_KEY
 
@@ -83,7 +83,9 @@ wrangler deploy
 
 Then set two things:
 
-1. `ALLOWED_ORIGINS` in `wrangler.jsonc` to your extension's id (`chrome-extension://<id>`). For an unpacked build the id is derived from the load path and is stable as long as the directory does not move.
+1. `ALLOWED_ORIGINS` in `wrangler.jsonc`. Use `chrome-extension://*` when
+   distributing unpacked builds, because Chrome derives a different id from
+   each install path. A published extension can instead use its one exact id.
 2. `PROXY_URL` in `../config.js` and the matching entry in `../manifest.json` `host_permissions` to your deployed Worker URL.
 
 ## Endpoints
@@ -107,7 +109,10 @@ This is what makes the extension's fabricated-claims fallback unnecessary. When 
 ## Abuse controls, and their honest limits
 
 - **Per-IP rate limit**, 30 requests/minute. Cloudflare rate limits are per-location and eventually consistent, so this is a blunt brake, not accounting.
-- **Origin allow-list.** `Origin` is set by browsers but trivially forged by any non-browser client. This is friction against casual abuse, **not authentication**. The rate limit is what actually bounds cost.
+- **Origin allow-list.** The unpacked distribution accepts any syntactically
+  valid Chrome extension origin. `Origin` is trivially forged by non-browser
+  clients, so this is routing friction, **not authentication**. The rate limit
+  is what actually bounds cost.
 
 If this ever needs to be real, issue a per-install token at first run and verify it here.
 
