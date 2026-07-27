@@ -55,27 +55,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleYouTubeStop();
     sendResponse({ ack: true });
   } else if (msg.type === 'TRANSCRIPT_CHUNK' || msg.type === 'PROCESS_TRANSCRIPT_CHUNK') {
-    const tabId = sender.tab?.id || activeYouTubeTabId;
-    if (tabId) {
-      handleTranscriptChunk(tabId, msg.text);
-    }
+    (async () => {
+      const tabId = sender.tab?.id || await getActiveYouTubeTabId();
+      if (tabId) handleTranscriptChunk(tabId, msg.text);
+    })();
     sendResponse({ ack: true });
   } else if (msg.type === 'OFFSCREEN_ERROR') {
-    const tabId = sender.tab?.id || activeYouTubeTabId;
-    if (tabId) {
-      sendToTab(tabId, {
-        type: 'STATUS_UPDATE',
-        status: `Transcription Error: ${msg.error}`,
-        phase: 'error',
-      });
-    }
+    (async () => {
+      const tabId = sender.tab?.id || await getActiveYouTubeTabId();
+      if (tabId) {
+        sendToTab(tabId, {
+          type: 'STATUS_UPDATE',
+          status: `Transcription Error: ${msg.error}`,
+          phase: 'error',
+        });
+      }
+    })();
     sendResponse({ ack: true });
   } else if (msg.type === 'STATUS_UPDATE' && !sender.tab) {
     // Offscreen documents have no sender.tab. Relay their capture/transcription
     // status to the YouTube tab instead of silently dropping it.
-    if (activeYouTubeTabId) {
-      sendToTab(activeYouTubeTabId, msg);
-    }
+    getActiveYouTubeTabId().then((tabId) => {
+      if (tabId) sendToTab(tabId, msg);
+    });
     sendResponse({ ack: true });
   } else if (msg.type === 'GET_GEMINI_LIVE_TOKEN' && !sender.tab) {
     getGeminiLiveToken()
@@ -229,7 +231,15 @@ async function processClaims(tabId, claims, mode) {
 
 // ─── YouTube Mode Handlers ───────────────────────────────────────────────────
 
+const ACTIVE_YOUTUBE_TAB_KEY = 'activeYouTubeTabId';
 let activeYouTubeTabId = null;
+
+async function getActiveYouTubeTabId() {
+  if (activeYouTubeTabId) return activeYouTubeTabId;
+  const stored = await chrome.storage.session.get(ACTIVE_YOUTUBE_TAB_KEY);
+  activeYouTubeTabId = stored[ACTIVE_YOUTUBE_TAB_KEY] || null;
+  return activeYouTubeTabId;
+}
 
 async function getGeminiLiveToken() {
   const response = await fetch(`${CONFIG.PROXY_URL}/v1/gemini-live-token`, {
@@ -245,6 +255,7 @@ async function getGeminiLiveToken() {
 
 async function handleYouTubeStart(tabId, streamId) {
   activeYouTubeTabId = tabId;
+  await chrome.storage.session.set({ [ACTIVE_YOUTUBE_TAB_KEY]: tabId });
 
   let token;
   try {
@@ -307,6 +318,7 @@ async function handleYouTubeStop() {
     // Ignore close errors if document is not active
   }
   activeYouTubeTabId = null;
+  await chrome.storage.session.remove(ACTIVE_YOUTUBE_TAB_KEY);
 }
 
 async function handleTranscriptChunk(tabId, text) {

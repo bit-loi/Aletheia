@@ -21,9 +21,9 @@
     // Provider chain, tried in order. All are OpenAI-compatible /chat/completions.
     "LLM_CHAIN": "gemini,groq",
 
-    // Google's docs currently showcase gemini-3.6-flash; 2.5-flash also works.
+    // Stable, high-volume model suited to claim extraction and verdict JSON.
     // Change here rather than in code.
-    "GEMINI_MODEL": "gemini-2.5-flash",
+    "GEMINI_MODEL": "gemini-3.1-flash-lite",
 
     // Search backends, tried in order. Tavily is primary (1,000 credits/month
     // free, no hosting to run). Wikipedia is the keyless last resort so a

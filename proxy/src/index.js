@@ -34,12 +34,12 @@ const PROVIDERS = {
    * shape as every other entry here. The native generateContent API does not,
    * and would need its own adapter.
    *
-   * Model id is a var rather than a literal: Google's docs currently showcase
-   * gemini-3.6-flash, and switching should not require a code change.
+   * Model id is a var rather than a literal so switching models does not
+   * require a code change.
    */
   gemini: {
     url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-    model: (env) => env.GEMINI_MODEL || 'gemini-2.5-flash',
+    model: (env) => env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
     key: (env) => env.GEMINI_API_KEY,
   },
   nvidia: {
@@ -305,7 +305,7 @@ async function handleGeminiLiveToken(env, origin) {
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
     const now = Date.now();
-    const response = await fetch('https://generativelanguage.googleapis.com/v1alpha/auth_tokens', {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
