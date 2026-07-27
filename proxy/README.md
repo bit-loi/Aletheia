@@ -17,8 +17,37 @@ edge runtime. Two entry points are provided:
 
 | Platform | Entry point | Notes |
 |---|---|---|
+| Deno Deploy | `deno.js` | Lowest friction: no npm, no CLI, deploys from GitHub. Verified locally. |
 | Cloudflare Workers | `src/index.js` | Native. Only option with the rate-limit binding. |
-| Vercel Edge | `api/index.js` | Thin adapter. Deployable from GitHub with **no local tooling**. |
+| Vercel Edge | `api/index.js` | Thin adapter. Deployable from GitHub with no local tooling. |
+
+### Deno Deploy
+
+1. Push this repo to GitHub.
+2. dash.deno.com → New Project → link the repo.
+3. Entry point: `proxy/deno.js`
+4. Add environment variables (see the table below), then deploy.
+
+To run it locally first:
+
+```bash
+cd proxy
+ALLOWED_ORIGINS='chrome-extension://<your-extension-id>' \
+SEARCH_CHAIN='tavily,wikipedia' LLM_CHAIN='gemini,groq' \
+  deno run --allow-net --allow-env deno.js
+curl localhost:8000/health
+```
+
+### Environment variables
+
+| Name | Example | Secret |
+|---|---|---|
+| `GEMINI_API_KEY` | | yes |
+| `TAVILY_API_KEY` | | yes |
+| `ALLOWED_ORIGINS` | `chrome-extension://<id>` | no |
+| `LLM_CHAIN` | `gemini,groq` | no |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | no |
+| `SEARCH_CHAIN` | `tavily,wikipedia` | no |
 
 **No rate limiting outside Cloudflare.** The limiter is a Workers binding. On
 Vercel `env.RL` is undefined, the code degrades and logs `rate_limiter_missing`,
