@@ -73,18 +73,12 @@ await check(
   (r, b) => r.status === 503 && b.error === 'all providers unavailable'
 );
 
-await check(
-  'Deepgram token endpoint fails closed without its server secret',
-  post('/v1/deepgram-token', {}),
-  (r, b) => r.status === 503 && /not configured/.test(b.error || '')
-);
-
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
-  if (String(input) === 'https://api.deepgram.com/v1/auth/grant') {
-    const authorized = init?.headers?.authorization === 'Token server-only-secret';
+  if (String(input) === 'https://generativelanguage.googleapis.com/v1alpha/auth_tokens') {
+    const authorized = init?.headers?.['x-goog-api-key'] === 'server-only-secret';
     return authorized
-      ? new Response(JSON.stringify({ access_token: 'short-lived-token', expires_in: 30 }), {
+      ? new Response(JSON.stringify({ name: 'short-lived-gemini-token' }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         })
@@ -93,13 +87,12 @@ globalThis.fetch = async (input, init) => {
   return realFetch(input, init);
 };
 await check(
-  'Deepgram server secret exchanges for a short-lived client token',
-  post('/v1/deepgram-token', {}),
+  'Gemini server secret exchanges for a short-lived Live token',
+  post('/v1/gemini-live-token', {}),
   (r, b) => r.status === 200 &&
-    b.access_token === 'short-lived-token' &&
-    b.expires_in === 30 &&
+    b.token === 'short-lived-gemini-token' &&
     !JSON.stringify(b).includes('server-only-secret'),
-  { ...env, DEEPGRAM_API_KEY: 'server-only-secret' }
+  { ...env, GEMINI_API_KEY: 'server-only-secret' }
 );
 globalThis.fetch = realFetch;
 

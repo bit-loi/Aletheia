@@ -64,15 +64,48 @@ function showNotice(text, ms = 3200) {
   setTimeout(() => actionStatus.classList.remove('visible'), ms);
 }
 
-function renderMode(tab) {
-  activeTab = tab;
-  const isWebPage = Boolean(tab?.id && tab?.url?.startsWith('http'));
-  activeMode = isWebPage ? (isYouTubeVideo(tab.url) ? 'youtube' : 'article') : 'unsupported';
+async function detectMode(tab) {
+  if (!tab?.id || !tab?.url?.startsWith('http')) return 'unsupported';
+  if (!isYouTubeVideo(tab.url)) return 'article';
 
-  if (activeMode === 'youtube') {
+  const url = new URL(tab.url);
+  if (url.pathname.startsWith('/live/')) return 'youtube-live';
+
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const video = document.querySelector('video');
+        const liveBadge = document.querySelector('.ytp-live-badge');
+        return Boolean(
+          (video && !Number.isFinite(video.duration)) ||
+          (liveBadge && liveBadge.getClientRects().length > 0)
+        );
+      },
+    });
+    return result ? 'youtube-live' : 'youtube-recorded';
+  } catch (_) {
+    return 'youtube-recorded';
+  }
+}
+
+function renderMode(tab, mode) {
+  activeTab = tab;
+  activeMode = mode;
+
+  if (activeMode === 'youtube-live') {
     modeTitle.textContent = 'YouTube live check';
     modeDescription.textContent = 'Aletheia listens to the playing video and checks spoken claims as they arrive.';
     modeHint.textContent = 'Play the video with sound before you start. Keep this tab open while Aletheia listens.';
+    startFactCheckBtn.textContent = 'Listen to live video';
+    startFactCheckBtn.disabled = false;
+    return;
+  }
+
+  if (activeMode === 'youtube-recorded') {
+    modeTitle.textContent = 'YouTube video check';
+    modeDescription.textContent = 'Aletheia listens with Gemini and checks spoken claims as the video plays.';
+    modeHint.textContent = 'Play the video with sound before you start. You can pause when you want Aletheia to stop hearing new claims.';
     startFactCheckBtn.textContent = 'Listen to this video';
     startFactCheckBtn.disabled = false;
     return;
@@ -95,8 +128,8 @@ function renderMode(tab) {
 }
 
 chrome.tabs.query({ active: true, currentWindow: true })
-  .then(([tab]) => renderMode(tab))
-  .catch(() => renderMode(null));
+  .then(async ([tab]) => renderMode(tab, await detectMode(tab)))
+  .catch(() => renderMode(null, 'unsupported'));
 
 fetch(`${CONFIG.PROXY_URL}/health`)
   .then((response) => {
@@ -114,9 +147,13 @@ startFactCheckBtn.addEventListener('click', async () => {
   if (!activeTab?.id || activeMode === 'unsupported') return;
 
   startFactCheckBtn.disabled = true;
-  startFactCheckBtn.textContent = activeMode === 'youtube' ? 'Starting listener…' : 'Starting check…';
+  startFactCheckBtn.textContent = activeMode === 'youtube-live'
+    ? 'Starting listener…'
+    : activeMode === 'youtube-recorded'
+      ? 'Starting listener…'
+      : 'Starting check…';
 
-  if (activeMode === 'youtube') {
+  if (activeMode.startsWith('youtube-')) {
     await chrome.runtime.sendMessage({
       type: 'START_YOUTUBE',
       tabId: activeTab.id,
@@ -129,5 +166,5 @@ startFactCheckBtn.addEventListener('click', async () => {
 
   startFactCheckBtn.textContent = 'Started';
   showNotice('The fact-check panel is opening on this tab.');
-  setTimeout(() => renderMode(activeTab), 1800);
+  setTimeout(() => renderMode(activeTab, activeMode), 1800);
 });

@@ -73,14 +73,14 @@ Aletheia functions as an autonomous **Agentic Multi-Step System** operating thro
 |  |  * Neobrutalist UI|                  |  +-------------------+ | |
 |  |    (Shadow DOM)   |                  |  |  Agentic Pipeline | | |
 |  |  * Draggable panel|                  |  |  1. Claim Extract | | |
-|  +-------------------+                  |  |     (NVIDIA NIM)  | | |
+|  +-------------------+                  |  |     (Gemini)      | | |
 |                                         |  |  2. Search Tool   | | |
 |  +-------------------+                  |  |     (Tavily)      | | |
 |  | Offscreen Doc     |                  |  |  3. Grounded RAG  | | |
-|  | (YouTube mode)    |<---------------->|  |     (NVIDIA NIM)  | | |
+|  | (YouTube mode)    |<---------------->|  |     (Gemini)      | | |
 |  |                   |                  |  +-------------------+ | |
 |  |  * Tab audio      |                  |                        | |
-|  |  * Deepgram WS    |                  |  +-------------------+ | |
+|  |  * Gemini Live WS |                  |  +-------------------+ | |
 |  +-------------------+                  |  |  Verdict Cache    | | |
 |                                         |  |  chrome.storage   | | |
 |                                         |  +-------------------+ | |
@@ -90,8 +90,8 @@ Aletheia functions as an autonomous **Agentic Multi-Step System** operating thro
 
 ### Key Stages
 1. **Perception & Ingestion:** Captures live audio streams from video tabs or extracts structured text blocks from active web articles.
-2. **Streaming Speech-to-Text:** Converts live tab audio into text chunks in low-latency real-time via WebSocket connections (Deepgram).
-3. **Decomposition & Claim Extraction:** An AI extraction agent evaluates incoming text chunks to identify discrete, empirical, and verifiable claims (filtering out opinions and subjective framing) powered by **NVIDIA NIM (`minimaxai/minimax-m3`)**.
+2. **YouTube Understanding:** YouTube tab audio streams to Gemini Live for realtime transcription.
+3. **Decomposition & Claim Extraction:** Gemini evaluates incoming text chunks to identify discrete, empirical, and verifiable claims while filtering opinions and subjective framing.
 4. **Tool Use & Evidence Retrieval:** An automated search agent crafts targeted search queries and queries trusted search APIs (**Tavily**) to gather real-world context.
 5. **Grounded Verdict Generation:** A reasoning LLM evaluates the retrieved search context against the extracted claim to generate a verdict (True, False, or Misleading) along with an auditable explanation strictly constrained to the retrieved evidence to eliminate hallucinations.
 6. **Dynamic Overlay UI:** Displays color-coded badges, concise explanations, and direct source links on a non-intrusive Neobrutalist overlay on top of the media content.
@@ -110,10 +110,10 @@ Furthermore, Aletheia distinguishes itself from generic LLM chatbots by employin
 
 The technical feasibility of Aletheia is proven through a functional Chrome Extension (Manifest V3) prototype, enabling live overlays without interrupting the user's viewing or reading experience.
 
-* **Real-Time Audio Capture & Transcription:** Utilizes Chrome’s native `tabCapture` API routed through a background Offscreen Document to stream live tab audio directly to a Deepgram WebSocket API. This architecture achieves low-latency speech-to-text conversion for live YouTube playback.
-* **High-Throughput Agentic Pipeline:** Transcribed chunks are ingested by high-speed LLM endpoints (**NVIDIA NIM `minimaxai/minimax-m3`** / Google Gemini 2.0 Flash) configured with structured JSON outputs for reliable claim extraction.
+* **YouTube Analysis:** Chrome `tabCapture` and an Offscreen Document convert video audio to 16 kHz PCM for Gemini Live transcription.
+* **High-Throughput Agentic Pipeline:** Transcript chunks and article text are processed by Gemini with structured JSON outputs for reliable claim extraction.
 * **Evidence Search Integration:** Claims are routed through automated retrieval agents powered by APIs like **Tavily Search** to gather real-time web evidence.
-* **Optimization for Scale & Rate Limits:** Implements client-side claim batching, exponential backoff handling (`delay *= 2`), throttled 15-second audio buffering, and an in-memory SHA-256 caching layer for viral news claims to optimize API token usage and keep latency low for end-users.
+* **Optimization for Scale & Rate Limits:** Uses short transcript windows, bounded claim batches, and an in-memory SHA-256 verdict cache to control API usage and keep results responsive.
 
 ---
 
@@ -137,10 +137,8 @@ By revealing source provenance, logic pathways, and underlying evidence for ever
 
 ### 1. Prerequisites
 - Google Chrome (or any Chromium-based browser)
-- No API keys are required for article fact-checking. The hosted proxy provides
-  Gemini and Tavily on a shared, rate-limited quota.
-- No user API keys are required. The hosted proxy supplies Gemini, Tavily, and
-  a short-lived Deepgram token for YouTube audio mode.
+- No API keys are required. The hosted proxy supplies Gemini and Tavily on a
+  shared, rate-limited quota. Gemini handles both recorded and live YouTube.
 
 ### 2. Installation
 1. Clone or download this repository:
@@ -154,8 +152,8 @@ By revealing source provenance, logic pathways, and underlying evidence for ever
 ### 3. Start Fact-Checking
 1. Open a news article and click the **Aletheia icon**.
 2. Click **Check this page**. No setup is required.
-3. On a playing YouTube video, click **Listen to this video** to check spoken
-   claims as they arrive.
+3. Play a YouTube video, then click **Listen to this video**. Live broadcasts
+   use the same Gemini Live transcription path.
 
 ---
 
@@ -181,7 +179,7 @@ aletheia/
 |
 |-- offscreen/
 |   |-- offscreen.html            # Audio capture shell
-|   +-- offscreen.js              # MediaRecorder & Deepgram WebSocket stream
+|   +-- offscreen.js              # PCM conversion & Gemini Live WebSocket
 |
 |-- popup/
 |   |-- popup.html                # One-click launch panel

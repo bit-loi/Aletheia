@@ -19,12 +19,11 @@ export const CONFIG = {
   /** Legacy direct-key fallback. Keep empty in source. */
   LLM_API_KEY: '',
   TAVILY_API_KEY: '',
-  DEEPGRAM_API_KEY: '',
-
   /** Direct (bring-your-own-key) endpoint. Google's OpenAI-compatibility layer,
    *  so it shares the request shape used by the proxy's provider chain. */
   LLM_DIRECT_URL: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
   LLM_DIRECT_MODEL: 'gemini-2.5-flash',
+  GEMINI_LIVE_MODEL: 'gemini-3.1-flash-live-preview',
 
   BUFFER_INTERVAL_MS: 15000,
 };

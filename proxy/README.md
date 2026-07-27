@@ -9,9 +9,8 @@ A key bundled into a browser extension is a **published** key. The package is a 
 So the extension ships with no keys. It calls this Worker, which holds them.
 
 The popup is a one-click launch panel, not a credential form. Article requests
-use Gemini and Tavily through the proxy. YouTube transcription obtains a
-short-lived Deepgram token from the proxy, so the long-lived key stays
-server-side too.
+use Gemini and Tavily through the proxy. YouTube tab audio streams directly to
+Gemini Live with a short-lived token.
 
 ## Where to deploy
 
@@ -47,7 +46,6 @@ curl localhost:8000/health
 |---|---|---|
 | `GEMINI_API_KEY` | | yes |
 | `TAVILY_API_KEY` | | yes |
-| `DEEPGRAM_API_KEY` | | yes |
 | `ALLOWED_ORIGINS` | `chrome-extension://*` | no |
 | `LLM_CHAIN` | `gemini,groq` | no |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | no |
@@ -81,7 +79,6 @@ wrangler login
 wrangler secret put GEMINI_API_KEY
 wrangler secret put GROQ_API_KEY          # optional, second in the chain
 wrangler secret put TAVILY_API_KEY
-wrangler secret put DEEPGRAM_API_KEY
 
 wrangler deploy
 ```
@@ -99,7 +96,7 @@ Then set two things:
 |---|---|---|---|
 | `POST` | `/v1/chat` | `{messages, temperature?, max_tokens?}` | `{content, provider}` |
 | `POST` | `/v1/search` | `{query, max_results?}` | `{results: [{title, url, snippet}]}` |
-| `POST` | `/v1/deepgram-token` | | `{access_token, expires_in}` |
+| `POST` | `/v1/gemini-live-token` | | `{token}` |
 | `GET` | `/health` | | `ok` |
 
 ## Provider chains

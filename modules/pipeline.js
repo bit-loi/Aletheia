@@ -1,5 +1,5 @@
 /**
- * pipeline.js: Shared fact-checking pipeline powered by NVIDIA NIM (MiniMax M3).
+ * pipeline.js: Shared fact-checking pipeline powered by the hosted LLM proxy.
  *
  * Three stages:
  *   1. extractClaims(text)     → string[]          : pulls falsifiable claims from text
@@ -20,7 +20,7 @@ import { CONFIG } from '../config.js';
 export async function getSettings() {
   return new Promise((resolve, reject) => {
     chrome.storage.sync.get(
-      ['llmKey', 'nvidiaKey', 'tavilyKey', 'deepgramKey'],
+      ['llmKey', 'nvidiaKey', 'tavilyKey'],
       (data) => {
         if (chrome.runtime.lastError) {
           return reject(new Error(chrome.runtime.lastError.message));
@@ -30,7 +30,6 @@ export async function getSettings() {
           // key does not silently lose it after the switch to Gemini.
           llmKey: data.llmKey || data.nvidiaKey || CONFIG.LLM_API_KEY,
           tavilyKey: data.tavilyKey || CONFIG.TAVILY_API_KEY,
-          deepgramKey: data.deepgramKey || CONFIG.DEEPGRAM_API_KEY,
         });
       }
     );
@@ -68,12 +67,6 @@ function parseJSON(raw) {
   throw new Error(`Invalid JSON format: ${raw.slice(0, 150)}`);
 }
 
-/**
- * Calls NVIDIA NIM API directly using minimaxai/minimax-m3 model.
- * Without a personal key this routes through the proxy, which owns provider
- * failover. With a personal key it calls the provider directly. Either way a
- * total failure throws: it never substitutes placeholder content.
- */
 /**
  * Call the hosted proxy, which holds provider keys server-side and fails over
  * across a provider chain. This is the default path: it is what lets the
@@ -114,7 +107,7 @@ async function retrieveEvidenceViaProxy(claim) {
   }
 }
 
-export async function callNVIDIA_NIM(promptText, temperature = 0.3, maxTokens = 2048) {
+export async function callLLM(promptText, temperature = 0.3, maxTokens = 2048) {
   const { llmKey } = await getSettings();
   const apiKey = llmKey && llmKey.trim() ? llmKey.trim() : CONFIG.LLM_API_KEY;
 
@@ -160,7 +153,7 @@ export async function callNVIDIA_NIM(promptText, temperature = 0.3, maxTokens = 
 
       if (!res.ok) {
         const errBody = await res.text().catch(() => '');
-        console.warn(`[Aletheia] NVIDIA API error (${res.status}): ${errBody.slice(0, 100)}`);
+        console.warn(`[Aletheia] LLM API error (${res.status}): ${errBody.slice(0, 100)}`);
         continue;
       }
 
@@ -203,7 +196,7 @@ Example output:
 ["Indonesia's GDP grew 5.1% in Q3 2025.", "The WHO declared mpox a global health emergency in August 2024."]`;
 
 /**
- * Calls MiniMax M3 via NVIDIA NIM to extract checkable claims from text.
+ * Uses the configured LLM to extract checkable claims from text.
  * @param {string} text  The article body or transcript chunk.
  * @returns {Promise<string[]>}  Array of claim strings.
  */
@@ -211,7 +204,7 @@ export async function extractClaims(text) {
   const truncated = text.length > 12000 ? text.slice(0, 12000) + '\n[…text truncated…]' : text;
   const prompt = CLAIM_EXTRACTION_PROMPT + `\n\nText to analyze:\n"""\n${truncated}\n"""`;
 
-  const content = await callNVIDIA_NIM(prompt, 0.2, 2048);
+  const content = await callLLM(prompt, 0.2, 2048);
 
   try {
     const claims = parseJSON(content);
@@ -316,7 +309,7 @@ export async function generateVerdict(claim, evidence) {
 
   const prompt = VERDICT_PROMPT.replace('{CLAIM}', claim).replace('{EVIDENCE}', evidenceText);
 
-  const content = await callNVIDIA_NIM(prompt, 0.1, 1024);
+  const content = await callLLM(prompt, 0.1, 1024);
 
   try {
     const verdict = parseJSON(content);
