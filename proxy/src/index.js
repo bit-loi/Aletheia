@@ -308,10 +308,18 @@ export default {
       return json({ error: 'method not allowed' }, 405, origin);
     }
 
-    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const { success } = await env.RL.limit({ key: ip });
-    if (!success) {
-      return json({ error: 'rate limited', retryAfter: 60 }, 429, origin);
+    // The rate-limit binding is configured in wrangler.jsonc. If this Worker was
+    // created through the dashboard instead, the binding may be absent; degrade
+    // rather than throwing, and say so in the logs so it is not silently
+    // unprotected.
+    if (env.RL && typeof env.RL.limit === 'function') {
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const { success } = await env.RL.limit({ key: ip });
+      if (!success) {
+        return json({ error: 'rate limited', retryAfter: 60 }, 429, origin);
+      }
+    } else {
+      console.log(JSON.stringify({ event: 'rate_limiter_missing' }));
     }
 
     try {
