@@ -48,7 +48,7 @@ curl localhost:8000/health
 | `TAVILY_API_KEY` | | yes |
 | `ALLOWED_ORIGINS` | `chrome-extension://*` | no |
 | `LLM_CHAIN` | `gemini,groq` | no |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | no |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | no |
 | `SEARCH_CHAIN` | `tavily,wikipedia` | no |
 
 **No rate limiting outside Cloudflare.** The limiter is a Workers binding. On

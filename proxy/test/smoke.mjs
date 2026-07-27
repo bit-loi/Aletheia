@@ -75,7 +75,7 @@ await check(
 
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
-  if (String(input) === 'https://generativelanguage.googleapis.com/v1alpha/auth_tokens') {
+  if (String(input) === 'https://generativelanguage.googleapis.com/v1beta/auth_tokens') {
     const authorized = init?.headers?.['x-goog-api-key'] === 'server-only-secret';
     return authorized
       ? new Response(JSON.stringify({ name: 'short-lived-gemini-token' }), {

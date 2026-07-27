@@ -92,7 +92,7 @@ function connectGemini(token) {
   silenceDurationMs = 0;
   const endpoint =
     'wss://generativelanguage.googleapis.com/ws/' +
-    'google.ai.generativelanguage.v1alpha.GenerativeService.' +
+    'google.ai.generativelanguage.v1beta.GenerativeService.' +
     `BidiGenerateContentConstrained?access_token=${encodeURIComponent(token)}`;
 
   const socket = new WebSocket(endpoint);
@@ -114,10 +114,17 @@ function connectGemini(token) {
     }));
   };
 
-  socket.onmessage = (event) => {
+  socket.onmessage = async (event) => {
     if (geminiSocket !== socket) return;
     try {
-      const message = JSON.parse(event.data);
+      let payload = event.data;
+      if (payload instanceof Blob) {
+        payload = await payload.text();
+      } else if (payload instanceof ArrayBuffer) {
+        payload = new TextDecoder().decode(payload);
+      }
+      if (geminiSocket !== socket) return;
+      const message = JSON.parse(payload);
       if (message.setupComplete) {
         socketReady = true;
         chrome.runtime.sendMessage({
