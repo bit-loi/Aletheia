@@ -1,21 +1,37 @@
 /*
- * content.css — Minimal page-scope styles for the Aletheia host element.
+ * content.css — page-scope styles for the Aletheia host element.
  *
- * Almost everything is inside Shadow DOM (in content.js), so this file
- * only handles the custom element positioning. Kept thin on purpose to
- * avoid interfering with host page styles.
+ * Almost everything lives inside the Shadow DOM (content/styles.js); this file
+ * only anchors the custom element and defends it against host page styles.
+ *
+ * ORDER IS LOAD-BEARING. `all` wipes every longhand, including ones declared
+ * above it, so the reset must come FIRST and everything we actually want must
+ * be declared AFTER it. Previously `all: initial !important` sat below the
+ * positioning block and silently erased top/right/z-index/pointer-events,
+ * leaving the overlay with `z-index: auto` and no stacking guarantee — it
+ * stayed on top only by virtue of late DOM order, so any page with a z-indexed
+ * sticky header or modal could paint over the fact-check panel.
+ *
+ * Note that an outer-tree declaration on the host outranks a normal `:host`
+ * declaration in the shadow tree, so `:host` cannot set inherited properties
+ * (font-family, color) while this reset is in place. Typography is therefore
+ * declared on .aletheia-panel / .aletheia-fab instead.
  */
 
 aletheia-root {
-  /* Fixed positioning is also set via :host in the shadow, but we set it
-     here too as a fallback — some pages aggressively reset custom elements. */
-  position: fixed !important;
-  top: 16px !important;
-  right: 16px !important;
-  z-index: 2147483647 !important;
-  pointer-events: auto !important;
-  /* Don't inherit anything from the host page */
+  /* Reset first. Everything below survives; anything above would not. */
   all: initial !important;
+
   display: block !important;
   position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+
+  /* The stacking guarantee. Must outrank whatever the host page defines. */
+  z-index: 2147483647 !important;
+
+  /* Zero-size anchor; the panel and FAB opt back into hit-testing themselves. */
+  pointer-events: none !important;
 }

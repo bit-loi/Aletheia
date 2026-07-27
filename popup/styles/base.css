@@ -1,5 +1,10 @@
 /* ==========================================================================
-   Aletheia Popup - Base Styles & Theme Variables
+   Aletheia Popup - Base
+
+   All values come from shared/tokens.js, which is injected by the blocking
+   <script> in popup.html <head>. There is no body.light-theme override block
+   here any more: the tokens themselves swap under body.light-theme, so every
+   component that reads a token follows the theme for free.
    ========================================================================== */
 
 * {
@@ -10,21 +15,22 @@
 
 body {
   width: 360px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background: #000000;
-  color: #ffffff;
-  font-size: 13px;
+  font-family: var(--al-font-ui);
+  background: var(--al-surface);
+  color: var(--al-ink);
+  font-size: var(--al-text-md);
   line-height: 1.5;
-  padding: 18px;
-  transition: background 0.2s ease, color 0.2s ease;
+  padding: var(--al-space-4);
+  transition: background var(--al-dur-2) var(--al-ease-standard),
+              color var(--al-dur-2) var(--al-ease-standard);
 }
 
 .popup-container {
   width: 100%;
 }
 
-/* ===== Light Theme Global Override ===== */
-body.light-theme {
-  background: #ffffff;
-  color: #000000;
+/* Shared focus treatment. :focus-visible only, so pointer users never see it. */
+:focus-visible {
+  outline: var(--al-focus-width) solid var(--al-focus);
+  outline-offset: 2px;
 }
