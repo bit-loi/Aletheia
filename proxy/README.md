@@ -35,7 +35,7 @@ To run it locally first:
 ```bash
 cd proxy
 ALLOWED_ORIGINS='chrome-extension://<your-extension-id>' \
-SEARCH_CHAIN='tavily,wikipedia' LLM_CHAIN='gemini,groq' \
+SEARCH_CHAIN='tavily,wikipedia' LLM_CHAIN='gemini,openrouter,groq' \
   deno run --allow-net --allow-env deno.js
 curl localhost:8000/health
 ```
@@ -45,10 +45,12 @@ curl localhost:8000/health
 | Name | Example | Secret |
 |---|---|---|
 | `GEMINI_API_KEY` | | yes |
+| `OPENROUTER_API_KEY` | | yes |
 | `TAVILY_API_KEY` | | yes |
 | `ALLOWED_ORIGINS` | `chrome-extension://*` | no |
-| `LLM_CHAIN` | `gemini,groq` | no |
+| `LLM_CHAIN` | `gemini,openrouter,groq` | no |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite` | no |
+| `OPENROUTER_MODEL` | `google/gemma-4-26b-a4b-it:free` | no |
 | `SEARCH_CHAIN` | `tavily,wikipedia` | no |
 
 **No rate limiting outside Cloudflare.** The limiter is a Workers binding. On
@@ -63,7 +65,7 @@ Vercel's WAF/rate limiting or Upstash before publicising it.
 3. Set **Root Directory** to `proxy`.
 4. Settings → Environment Variables:
    - `GEMINI_API_KEY`, `TAVILY_API_KEY` (mark as secret)
-   - `ALLOWED_ORIGINS`, `LLM_CHAIN=gemini,groq`, `GEMINI_MODEL`, `SEARCH_CHAIN=tavily,wikipedia`
+   - `ALLOWED_ORIGINS`, `LLM_CHAIN=gemini,openrouter,groq`, `GEMINI_MODEL`, `OPENROUTER_MODEL`, `SEARCH_CHAIN=tavily,wikipedia`
 5. Deploy. The URL it prints goes into `../config.js` and `../manifest.json`.
 
 No npm, no CLI, no login flow in a terminal.
@@ -77,7 +79,8 @@ wrangler login
 
 # Secrets - never put these in wrangler.jsonc
 wrangler secret put GEMINI_API_KEY
-wrangler secret put GROQ_API_KEY          # optional, second in the chain
+wrangler secret put OPENROUTER_API_KEY
+wrangler secret put GROQ_API_KEY          # optional, third in the chain
 wrangler secret put TAVILY_API_KEY
 
 wrangler deploy
@@ -101,7 +104,13 @@ Then set two things:
 
 ## Provider chains
 
-**`LLM_CHAIN`** lists model providers in preference order. Every entry speaks the OpenAI `/chat/completions` shape, so failover costs only a base URL and a model id. Configured: `gemini` (via Google's OpenAI-compatibility layer), `groq`, `nvidia`, `pollinations`.
+**`LLM_CHAIN`** lists model providers in preference order. Every entry speaks the OpenAI `/chat/completions` shape, so failover costs only a base URL and a model id. Configured: `gemini` (via Google's OpenAI-compatibility layer), `openrouter`, `groq`, `nvidia`, `pollinations`.
+
+The default OpenRouter fallback is pinned to
+`google/gemma-4-26b-a4b-it:free`. Pinning avoids the output-quality variance of
+the random `openrouter/free` router, while `OPENROUTER_MODEL` keeps the free
+model replaceable when OpenRouter's catalog changes. Free-model rate limits and
+availability are not production guarantees.
 
 **`SEARCH_CHAIN`** does the same for evidence retrieval: `searxng` (self-hosted, keyless, unquota'd — see [searxng/README.md](searxng/README.md)), then `tavily` (1,000 credits/month free), then `wikipedia` (keyless, no quota, strong on historical and scientific claims, useless on breaking news).
 

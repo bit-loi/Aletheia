@@ -19,11 +19,15 @@
     "ALLOWED_ORIGINS": "chrome-extension://*",
 
     // Provider chain, tried in order. All are OpenAI-compatible /chat/completions.
-    "LLM_CHAIN": "gemini,groq",
+    "LLM_CHAIN": "gemini,openrouter,groq",
 
     // Stable, high-volume model suited to claim extraction and verdict JSON.
     // Change here rather than in code.
     "GEMINI_MODEL": "gemini-3.1-flash-lite",
+
+    // Pinned free multilingual fallback. Free availability can change, so this
+    // stays configurable without a source change.
+    "OPENROUTER_MODEL": "google/gemma-4-26b-a4b-it:free",
 
     // Search backends, tried in order. Tavily is primary (1,000 credits/month
     // free, no hosting to run). Wikipedia is the keyless last resort so a
@@ -49,6 +53,7 @@
 
   // Secrets (never in this file) — set with:
   //   wrangler secret put GEMINI_API_KEY
-  //   wrangler secret put GROQ_API_KEY     (optional, second in the chain)
+  //   wrangler secret put OPENROUTER_API_KEY
+  //   wrangler secret put GROQ_API_KEY     (optional, third in the chain)
   //   wrangler secret put TAVILY_API_KEY
 }
