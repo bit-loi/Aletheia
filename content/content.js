@@ -29,6 +29,11 @@
 
   function startArticleCheck(overlay) {
     overlay.show();
+
+    // No key pre-flight: the pipeline falls back to the hosted proxy, so the
+    // extension works on install with nothing configured. If both the proxy and
+    // any personal keys fail, the service worker reports it as a real
+    // PIPELINE_ERROR and the overlay shows that, with a retry.
     overlay.setStatus('Reading article…', true);
     overlay.setProgressIndeterminate();
     overlay.clearClaims();
@@ -40,7 +45,8 @@
       overlay.clearProgress();
       overlay.showError(
         'Could not extract enough text from this page. The article may be paywalled, ' +
-        'dynamically loaded, or this page may not contain an article.'
+        'dynamically loaded, or this page may not contain an article.',
+        { onRetry: () => startArticleCheck(overlay) }
       );
       return;
     }
@@ -78,6 +84,8 @@
           overlay.show();
           overlay.totalClaims = msg.count;
           overlay.setStatus(`Found ${msg.count} claims, checking...`, true);
+          // Reserve a slot per expected claim so results resolve in place.
+          overlay.renderSkeletons(msg.count);
           break;
 
         case 'CLAIM_RESULT':
@@ -90,6 +98,14 @@
 
         case 'PIPELINE_COMPLETE':
           overlay.show();
+          // claimsFound === 0 is a terminal state, not a failure. Without it the
+          // overlay used to sit on "Listening & transcribing audio…" forever.
+          if (msg.claimsFound === 0 && overlay.claimCount === 0) {
+            overlay.setStatus('No claims found', false);
+            overlay.clearProgress();
+            overlay.renderNoClaims(msg.mode);
+            break;
+          }
           overlay.setStatus(`Done: ${overlay.claimCount} claims checked`, false);
           overlay.setProgress(1);
           setTimeout(() => overlay.clearProgress(), 2000);
@@ -99,7 +115,9 @@
           overlay.show();
           overlay.setStatus('Error', false);
           overlay.clearProgress();
-          overlay.showError(msg.error);
+          overlay.showError(msg.error, {
+            onRetry: () => startArticleCheck(overlay),
+          });
           break;
       }
     });
@@ -113,8 +131,8 @@
     // Don't run on extension pages, about:*, chrome:*, etc.
     if (!location.protocol.startsWith('http')) return;
 
-    // Clean up any stale old roots or buttons left over from previous script injections
-    document.querySelectorAll('aletheia-root, .trigger-btn').forEach((el) => el.remove());
+    // Clean up any stale roots left over from previous script injections
+    document.querySelectorAll('aletheia-root').forEach((el) => el.remove());
 
     const overlay = new Overlay();
     setupMessageListener(overlay);

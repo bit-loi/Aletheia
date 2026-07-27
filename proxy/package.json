@@ -1,0 +1,16 @@
+{
+  "name": "aletheia-proxy",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Keeps Aletheia's API keys server-side so the extension ships with none.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "test": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

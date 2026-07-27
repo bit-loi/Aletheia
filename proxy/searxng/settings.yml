@@ -1,0 +1,41 @@
+# Minimal SearXNG config for use as Aletheia's search backend.
+#
+# Two settings here are NOT the upstream defaults, and both are required:
+#
+#   search.formats must include `json`  - JSON output is disabled by default,
+#                                         and requesting &format=json without it
+#                                         returns HTTP 403, not an error message
+#   server.limiter: false               - the bot limiter treats API traffic as
+#                                         abuse and blocks it
+#
+# This instance is intended to be private (reachable only by your Worker).
+# Do not expose it publicly with the limiter off.
+
+use_default_settings: true
+
+server:
+  # Generate with: openssl rand -hex 32
+  secret_key: "CHANGE_ME_openssl_rand_hex_32"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+# Trim to sources that suit fact-checking. Fewer engines means faster, more
+# stable responses and less chance of one flaky engine stalling a request.
+engines:
+  - name: wikipedia
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: bing news
+    disabled: false
+  - name: google news
+    disabled: false

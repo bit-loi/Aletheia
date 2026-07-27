@@ -1,0 +1,54 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aletheia-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-27",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Production Workers without observability are a black box.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  "vars": {
+    // All valid Chrome extension origins may call the shared proxy, so unpacked
+    // installs work even though Chrome derives a different id from each path.
+    // See the note on spoofing in src/index.js — the rate limiter is the actual
+    // abuse bound.
+    "ALLOWED_ORIGINS": "chrome-extension://*",
+
+    // Provider chain, tried in order. All are OpenAI-compatible /chat/completions.
+    "LLM_CHAIN": "gemini,groq",
+
+    // Google's docs currently showcase gemini-3.6-flash; 2.5-flash also works.
+    // Change here rather than in code.
+    "GEMINI_MODEL": "gemini-2.5-flash",
+
+    // Search backends, tried in order. Tavily is primary (1,000 credits/month
+    // free, no hosting to run). Wikipedia is the keyless last resort so a
+    // credit exhaustion mid-demo degrades instead of failing.
+    //
+    // SearXNG stays supported and its setup lives in proxy/searxng/. To use it,
+    // stand that up and put "searxng" in this list.
+    "SEARCH_CHAIN": "tavily,wikipedia",
+
+    // Only read when "searxng" is in SEARCH_CHAIN.
+    "SEARXNG_URL": ""
+  },
+
+  // Per-IP throttle. Rate limits are per Cloudflare location and eventually
+  // consistent, so treat this as a blunt abuse brake, not accounting.
+  "ratelimits": [
+    {
+      "name": "RL",
+      "namespace_id": "1001",
+      "simple": { "limit": 30, "period": 60 }
+    }
+  ]
+
+  // Secrets (never in this file) — set with:
+  //   wrangler secret put GEMINI_API_KEY
+  //   wrangler secret put GROQ_API_KEY     (optional, second in the chain)
+  //   wrangler secret put TAVILY_API_KEY
+}

@@ -4,6 +4,12 @@
 .env.*
 !.env.example
 
+# Dependencies & build tooling state
+node_modules/
+package-lock.json
+.wrangler/
+.vercel/
+
 # Editor & IDE configs
 .vscode/
 .idea/

@@ -1,9 +1,0 @@
-/* ==========================================================================
-   Aletheia Popup - Main Stylesheet Entry Point
-   Imports modular stylesheets from styles/
-   ========================================================================== */
-
-@import url('styles/base.css');
-@import url('styles/header.css');
-@import url('styles/form.css');
-@import url('styles/dropdown.css');

@@ -4,10 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Aletheia Settings</title>
+  <!-- Blocking classic script: runs before the stylesheets below, so tokens are
+       in the cascade before first paint and the popup never flashes unstyled. -->
+  <script src="../shared/tokens.js" data-al-inject data-al-root=":root" data-al-light="body.light-theme"></script>
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/header.css">
   <link rel="stylesheet" href="styles/form.css">
-  <link rel="stylesheet" href="styles/dropdown.css">
 </head>
 <body>
   <div class="popup-container">
@@ -20,30 +22,40 @@
             <p class="tagline">AI Fact-Checker</p>
           </div>
         </div>
-        <div class="theme-toggle-container" title="Toggle Light/Dark Theme">
-          <span class="theme-label">DARK</span>
-          <label class="theme-switch">
-            <input type="checkbox" id="theme-toggle">
+        <div class="theme-toggle-container">
+          <span class="theme-label" aria-hidden="true">DARK</span>
+          <span class="theme-switch">
+            <input type="checkbox" id="theme-toggle" aria-label="Use light theme">
             <span class="slider"></span>
-          </label>
-          <span class="theme-label">LIGHT</span>
+          </span>
+          <span class="theme-label" aria-hidden="true">LIGHT</span>
         </div>
       </div>
     </header>
 
+    <!-- Keys are optional: without them the extension uses a hosted proxy on a
+         shared quota. This explains that state rather than blocking on it. -->
+    <div class="first-run" id="first-run" role="status">
+      <div class="first-run__title">Ready to use</div>
+      <div class="first-run__body">No setup needed. Aletheia runs on a shared quota, which is rate-limited. Add your own keys below for faster, unmetered checks. Keys stay in this browser.</div>
+    </div>
+
     <section class="settings-section">
-      <h2>API Keys & Model</h2>
+      <h2>API Keys &amp; Model</h2>
 
       <div class="field">
-        <label for="nvidia-key">
-          NVIDIA API Key
-          <span class="optional-badge">MiniMax M3</span>
+        <label for="llm-key">
+          Gemini API Key
+          <span class="optional-badge">optional</span>
         </label>
-        <input type="password" id="nvidia-key" placeholder="nvapi-…" autocomplete="off">
+        <input type="password" id="llm-key" placeholder="AI…" autocomplete="off">
       </div>
 
       <div class="field">
-        <label for="tavily-key">Tavily API Key</label>
+        <label for="tavily-key">
+          Tavily API Key
+          <span class="optional-badge">optional</span>
+        </label>
         <input type="password" id="tavily-key" placeholder="tvly-…" autocomplete="off">
       </div>
 
@@ -58,16 +70,16 @@
       <div class="field">
         <label>Active LLM Engine</label>
         <div class="engine-badge-card">
-          <span class="engine-model-name">minimaxai/minimax-m3</span>
-          <span class="engine-tag">NVIDIA NIM</span>
+          <span class="engine-model-name">gemini-2.5-flash</span>
+          <span class="engine-tag">Google</span>
         </div>
       </div>
     </section>
 
     <div class="actions">
-      <button id="start-youtube-btn" class="btn-secondary" style="display: none; margin-right: 8px;">Start Fact-Check</button>
+      <button id="start-youtube-btn" class="btn-secondary">Start Fact-Check</button>
       <button id="save-btn" class="btn-primary">Save Settings</button>
-      <span id="save-status" class="save-status"></span>
+      <span id="save-status" class="save-status" role="status" aria-live="polite"></span>
     </div>
 
     <footer class="popup-footer">

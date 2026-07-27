@@ -19,13 +19,15 @@ import { CONFIG } from '../config.js';
 export async function getSettings() {
   return new Promise((resolve, reject) => {
     chrome.storage.sync.get(
-      ['nvidiaKey', 'tavilyKey', 'deepgramKey'],
+      ['llmKey', 'nvidiaKey', 'tavilyKey', 'deepgramKey'],
       (data) => {
         if (chrome.runtime.lastError) {
           return reject(new Error(chrome.runtime.lastError.message));
         }
         resolve({
-          nvidiaKey: data.nvidiaKey || CONFIG.NVIDIA_API_KEY,
+          // `nvidiaKey` is the legacy name, read so anyone who already saved a
+          // key does not silently lose it after the switch to Gemini.
+          llmKey: data.llmKey || data.nvidiaKey || CONFIG.LLM_API_KEY,
           tavilyKey: data.tavilyKey || CONFIG.TAVILY_API_KEY,
           deepgramKey: data.deepgramKey || CONFIG.DEEPGRAM_API_KEY,
         });
@@ -67,22 +69,66 @@ function parseJSON(raw) {
 
 /**
  * Calls NVIDIA NIM API directly using minimaxai/minimax-m3 model.
- * Includes automatic fast fallbacks to Llama 3.1 8B and Gemma 2 9B, plus fail-safe response for flawless video demos.
+ * Without a personal key this routes through the proxy, which owns provider
+ * failover. With a personal key it calls the provider directly. Either way a
+ * total failure throws: it never substitutes placeholder content.
  */
-export async function callNVIDIA_NIM(promptText, temperature = 0.3, maxTokens = 2048) {
-  const { nvidiaKey } = await getSettings();
-  const apiKey = nvidiaKey && nvidiaKey.trim() ? nvidiaKey.trim() : CONFIG.NVIDIA_API_KEY;
+/**
+ * Call the hosted proxy, which holds provider keys server-side and fails over
+ * across a provider chain. This is the default path: it is what lets the
+ * extension work on install with nothing configured.
+ */
+async function callProxy(path, body) {
+  const base = (CONFIG.PROXY_URL || '').replace(/\/$/, '');
+  if (!base) throw new Error('No API key configured and no proxy URL set.');
 
+  const res = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 429) {
+    throw new Error('Aletheia is busy right now (shared quota). Try again shortly, or add your own API keys in the extension popup.');
+  }
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.error || `Proxy error (${res.status})`);
+  }
+  return res.json();
+}
+
+/** Evidence retrieval through the proxy, for users with no Tavily key. */
+async function retrieveEvidenceViaProxy(claim) {
+  try {
+    const data = await callProxy('/v1/search', { query: claim, max_results: 3 });
+    return (data.results || []).map((r) => ({
+      title: r.title || 'Untitled',
+      url: r.url || '',
+      snippet: r.snippet || '',
+    }));
+  } catch (err) {
+    console.warn('[Aletheia] Proxy search failed:', err.message);
+    return [];
+  }
+}
+
+export async function callNVIDIA_NIM(promptText, temperature = 0.3, maxTokens = 2048) {
+  const { llmKey } = await getSettings();
+  const apiKey = llmKey && llmKey.trim() ? llmKey.trim() : CONFIG.LLM_API_KEY;
+
+  // No personal key: the proxy answers, and handles provider failover itself.
   if (!apiKey) {
-    throw new Error('NVIDIA API Key is missing. Open the Aletheia extension popup and enter your NVIDIA API key.');
+    const data = await callProxy('/v1/chat', {
+      messages: [{ role: 'user', content: promptText }],
+      temperature,
+      max_tokens: maxTokens,
+    });
+    return data.content;
   }
 
-  const url = 'https://integrate.api.nvidia.com/v1/chat/completions';
-  const modelsToTry = [
-    'minimaxai/minimax-m3',
-    'meta/llama-3.1-8b-instruct',
-    'google/gemma-2-9b-it',
-  ];
+  const url = CONFIG.LLM_DIRECT_URL;
+  const modelsToTry = [CONFIG.LLM_DIRECT_MODEL];
 
   let lastError = null;
 
@@ -106,9 +152,9 @@ export async function callNVIDIA_NIM(promptText, temperature = 0.3, maxTokens = 
       });
 
       if (res.status === 429 || res.status >= 500) {
-        console.warn(`[Aletheia] NVIDIA model ${model} returned ${res.status}, switching to fast fallback model...`);
-        lastError = new Error(`NVIDIA API status ${res.status}`);
-        continue; // Try next fast model immediately!
+        console.warn(`[Aletheia] Model ${model} returned ${res.status}; no further direct fallback.`);
+        lastError = new Error(`LLM API status ${res.status}`);
+        continue;
       }
 
       if (!res.ok) {
@@ -128,21 +174,15 @@ export async function callNVIDIA_NIM(promptText, temperature = 0.3, maxTokens = 
     }
   }
 
-  // Fail-Safe Fallback for Video Demo: Ensures UI never crashes with red error boxes
-  console.warn('[Aletheia] All NVIDIA endpoints busy, executing fail-safe response for demo.');
-  if (promptText.includes('JSON array') || promptText.includes('falsifiable factual claims')) {
-    return JSON.stringify([
-      "Air strikes were reported targeting military positions in the region.",
-      "Defence officials confirmed security measures were heightened at local bases."
-    ]);
-  }
-
-  return JSON.stringify({
-    verdict: "True",
-    explanation: "Retrieved empirical evidence and official news reports confirm the stated factual sequence.",
-    confidence: "High",
-    key_sources: ["https://bbc.com/news"]
-  });
+  // Fail loudly. This previously returned hardcoded "demo" claims here, and a
+  // hardcoded {verdict: "True", confidence: "High"} with a fabricated source,
+  // so an API outage produced confident fiction that was indistinguishable from
+  // a real result. For a fact-checking tool that is the worst possible failure
+  // mode: an error box is recoverable, an invented verdict is not.
+  //
+  // Provider failover now lives in the proxy (proxy/src/index.js), so a single
+  // busy endpoint no longer takes the pipeline down.
+  throw lastError || new Error('All model providers are unavailable. Try again shortly.');
 }
 
 // ─── Stage 1: Claim Extraction ────────────────────────────────────────────────
@@ -203,8 +243,9 @@ export async function extractClaims(text) {
 export async function retrieveEvidence(claim) {
   const { tavilyKey } = await getSettings();
 
+  // No personal key: go through the proxy, which holds one server-side.
   if (!tavilyKey) {
-    return [];
+    return retrieveEvidenceViaProxy(claim);
   }
 
   const res = await fetch('https://api.tavily.com/search', {

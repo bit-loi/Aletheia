@@ -1,286 +1,206 @@
 /* ==========================================================================
-   Aletheia Popup - Settings Form, Inputs, Buttons & Footer
+   Aletheia Popup - Settings form, inputs, buttons, footer
+
+   Every value comes from shared/tokens.js. The ~95 lines of
+   body.light-theme overrides this file used to carry are gone: the tokens
+   swap under body.light-theme, so each rule below follows the theme for free.
    ========================================================================== */
 
-.settings-section h2 {
-  font-size: 10px;
-  font-family: 'Courier New', Courier, monospace;
-  font-weight: 800;
+/* ===== First-run banner ===== */
+.first-run {
+  display: none;
+  margin-bottom: var(--al-space-4);
+  padding: var(--al-space-3);
+  border: var(--al-hairline) solid var(--al-border-hairline);
+  border-left: 3px solid var(--al-v-misleading-accent);
+  border-radius: var(--al-radius-sm);
+  background: var(--al-surface-raised);
+}
+.first-run.is-visible { display: block; }
+.first-run__title {
+  font-family: var(--al-font-mono);
+  font-size: var(--al-text-2xs);
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: #ffffff;
-  opacity: 0.9;
-  margin-bottom: 10px;
-  margin-top: 16px;
+  letter-spacing: 0.1em;
+  color: var(--al-ink);
+  margin-bottom: var(--al-space-1);
+}
+.first-run__body {
+  font-size: var(--al-text-xs);
+  line-height: 1.5;
+  color: var(--al-ink-muted);
 }
 
-.settings-section h2:first-child {
-  margin-top: 0;
+/* ===== Section heading ===== */
+.settings-section h2 {
+  font-size: var(--al-text-2xs);
+  font-family: var(--al-font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--al-ink-muted);
+  margin-bottom: var(--al-space-2);
+  margin-top: var(--al-space-4);
 }
+.settings-section h2:first-child { margin-top: 0; }
 
-.field {
-  margin-bottom: 14px;
-}
+/* ===== Fields ===== */
+.field { margin-bottom: var(--al-space-3); }
 
 .field label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #ffffff;
-  margin-bottom: 6px;
+  gap: var(--al-space-2);
+  font-size: var(--al-text-sm);
+  font-weight: 600;
+  color: var(--al-ink);
+  margin-bottom: var(--al-space-2);
 }
 
 .optional-badge {
-  font-size: 9px;
-  font-family: 'Courier New', Courier, monospace;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #000000;
-  font-weight: 800;
+  font-size: var(--al-text-2xs);
+  font-family: var(--al-font-mono);
+  padding: 1px var(--al-space-1);
+  border-radius: var(--al-radius-xs);
+  background: transparent;
+  color: var(--al-ink-muted);
+  font-weight: 700;
   text-transform: uppercase;
-  border: 1.5px solid #ffffff;
+  letter-spacing: 0.06em;
+  border: var(--al-hairline) solid var(--al-border-hairline);
 }
 
-/* ===== Input Fields ===== */
 .field input[type="password"],
 .field input[type="text"] {
   width: 100%;
-  padding: 9px 12px;
-  border: 2px solid #ffffff;
-  border-radius: 10px;
-  background: #000000;
-  color: #ffffff !important;
-  caret-color: #ffffff;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: inherit;
-  box-shadow: 3px 3px 0px #ffffff;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  padding: var(--al-space-2) var(--al-space-3);
+  border: var(--al-hairline) solid var(--al-border-hairline);
+  border-radius: var(--al-radius-sm);
+  background: var(--al-surface-raised);
+  color: var(--al-ink);
+  caret-color: var(--al-ink);
+  font-size: var(--al-text-sm);
+  font-family: var(--al-font-mono);
+  transition: border-color var(--al-dur-2) var(--al-ease-standard),
+              background var(--al-dur-2) var(--al-ease-standard);
   outline: none;
 }
 
-.field input:focus {
-  border-color: #ffffff;
-  box-shadow: 4px 4px 0px #ffffff;
-  background: #111111;
+.field input:focus-visible {
+  border-color: var(--al-focus);
+  outline: var(--al-focus-width) solid var(--al-focus);
+  outline-offset: 1px;
 }
 
+/* Placeholders must clear WCAG AA against the input fill, so they use the
+   muted ink token rather than an opacity fade on the primary ink. */
 .field input::placeholder {
-  color: #ffffff !important;
-  opacity: 0.75 !important;
+  color: var(--al-ink-muted);
+  opacity: 1;
 }
 
-/* ===== Engine Badge Card ===== */
+/* ===== Engine card ===== */
 .engine-badge-card {
   width: 100%;
-  padding: 9px 12px;
-  border: 2px solid #ffffff;
-  border-radius: 10px;
-  background: #000000;
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: 3px 3px 0px #ffffff;
+  padding: var(--al-space-2) var(--al-space-3);
+  border: var(--al-hairline) solid var(--al-border-hairline);
+  border-radius: var(--al-radius-sm);
+  background: var(--al-surface-raised);
+  color: var(--al-ink);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--al-space-2);
   box-sizing: border-box;
 }
 
 .engine-model-name {
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 11px;
-  font-weight: 700;
-  color: #ffffff;
+  font-family: var(--al-font-mono);
+  font-size: var(--al-text-xs);
+  color: var(--al-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .engine-tag {
-  background: #76b900;
-  color: #000000;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 9px;
-  font-weight: 900;
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1.5px solid #ffffff;
+  flex: none;
+  background: transparent;
+  color: var(--al-ink-muted);
+  font-family: var(--al-font-mono);
+  font-size: var(--al-text-2xs);
+  font-weight: 700;
+  padding: 1px var(--al-space-1);
+  border-radius: var(--al-radius-xs);
+  border: var(--al-hairline) solid var(--al-border-hairline);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.06em;
 }
 
-/* ===== Actions & Buttons ===== */
+/* ===== Actions ===== */
 .actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 20px;
+  gap: var(--al-space-2);
+  margin-top: var(--al-space-5);
 }
 
 .btn-primary,
 .btn-secondary {
-  padding: 9px 16px;
-  border: 2px solid #ffffff;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 800;
-  font-family: 'Courier New', Courier, monospace;
+  padding: var(--al-space-2) var(--al-space-4);
+  border-radius: var(--al-radius-sm);
+  font-size: var(--al-text-2xs);
+  font-weight: 700;
+  font-family: var(--al-font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
   cursor: pointer;
-  box-shadow: 3.5px 3.5px 0px #ffffff;
-  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease, color 0.15s ease;
+  border: var(--al-hairline) solid var(--al-border-hairline);
+  transition: transform var(--al-dur-1) var(--al-ease-standard),
+              background var(--al-dur-2) var(--al-ease-standard);
 }
 
+/* Inverted fill. Reads as the primary action in both themes because both
+   sides of the pair come from theme-swapped tokens. */
 .btn-primary {
-  background: #ffffff;
-  color: #000000;
+  background: var(--al-ink);
+  color: var(--al-surface);
+  border-color: var(--al-ink);
 }
-
-.btn-primary:hover {
-  background: #e4e4e7;
-}
-
-.btn-primary:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1.5px 1.5px 0px #ffffff;
-}
+.btn-primary:hover { opacity: 0.88; }
+.btn-primary:active { transform: translate(1px, 1px); }
 
 .btn-secondary {
-  background: #000000;
-  color: #ffffff;
+  background: transparent;
+  color: var(--al-ink);
 }
+.btn-secondary:hover { background: var(--al-surface-raised); }
+.btn-secondary:active { transform: translate(1px, 1px); }
 
-.btn-secondary:hover {
-  background: #18181b;
-}
-
-.btn-secondary:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1.5px 1.5px 0px #ffffff;
-}
-
+/* Carries both "SAVED" and inline notices that used to be alert() calls, so it
+   stays neutral rather than success-green. */
 .save-status {
-  font-size: 11px;
-  font-family: 'Courier New', Courier, monospace;
-  font-weight: 800;
-  letter-spacing: 0.8px;
-  color: #10b981;
+  font-size: var(--al-text-2xs);
+  font-family: var(--al-font-mono);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--al-ink-muted);
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity var(--al-dur-2) var(--al-ease-standard);
 }
-
-.save-status.visible {
-  opacity: 1;
-}
+.save-status.visible { opacity: 1; }
 
 /* ===== Footer ===== */
 .popup-footer {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 2px solid #ffffff;
+  margin-top: var(--al-space-4);
+  padding-top: var(--al-space-3);
+  border-top: var(--al-hairline) solid var(--al-border-hairline);
 }
 
 .popup-footer p {
-  font-size: 10.5px;
-  color: #ffffff;
-  opacity: 0.85;
+  font-size: var(--al-text-xs);
+  color: var(--al-ink-muted);
   line-height: 1.5;
-}
-
-/* ===== Light Theme Overrides ===== */
-body.light-theme .settings-section h2 {
-  color: #000000;
-  opacity: 1;
-}
-
-body.light-theme .field label {
-  color: #000000;
-}
-
-body.light-theme .optional-badge {
-  background: #000000;
-  color: #ffffff;
-  border-color: #000000;
-}
-
-body.light-theme .field input[type="password"],
-body.light-theme .field input[type="text"] {
-  background: #ffffff;
-  border-color: #000000;
-  color: #000000 !important;
-  caret-color: #000000;
-  box-shadow: 3px 3px 0px #000000;
-}
-
-body.light-theme .field input:focus {
-  border-color: #000000;
-  box-shadow: 4px 4px 0px #000000;
-  background: #ffffff;
-}
-
-body.light-theme .field input::placeholder {
-  color: #000000 !important;
-  opacity: 0.65 !important;
-}
-
-body.light-theme .engine-badge-card {
-  background: #ffffff;
-  border-color: #000000;
-  color: #000000;
-  box-shadow: 3px 3px 0px #000000;
-}
-
-body.light-theme .engine-model-name {
-  color: #000000;
-}
-
-body.light-theme .engine-tag {
-  border-color: #000000;
-}
-
-body.light-theme .btn-primary {
-  background: #000000;
-  border-color: #000000;
-  color: #ffffff;
-  box-shadow: 3.5px 3.5px 0px #000000;
-}
-
-body.light-theme .btn-primary:hover {
-  background: #222222;
-}
-
-body.light-theme .btn-primary:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1.5px 1.5px 0px #000000;
-}
-
-body.light-theme .btn-secondary {
-  background: #ffffff;
-  border-color: #000000;
-  color: #000000;
-  box-shadow: 3.5px 3.5px 0px #000000;
-}
-
-body.light-theme .btn-secondary:hover {
-  background: #f4f4f5;
-}
-
-body.light-theme .btn-secondary:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1.5px 1.5px 0px #000000;
-}
-
-body.light-theme .save-status {
-  color: #059669;
-}
-
-body.light-theme .popup-footer {
-  border-top-color: #000000;
-}
-
-body.light-theme .popup-footer p {
-  color: #000000;
-  opacity: 1;
 }
