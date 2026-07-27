@@ -17,7 +17,8 @@
  *   env.ALLOWED_ORIGINS  comma-separated chrome-extension:// origins; supports
  *                        chrome-extension://* for unpacked installs
  *   env.LLM_CHAIN        comma-separated provider ids, in preference order
- *   env.GEMINI_API_KEY / env.GROQ_API_KEY / env.TAVILY_API_KEY  (secrets)
+ *   env.GEMINI_API_KEY / env.OPENROUTER_API_KEY / env.GROQ_API_KEY /
+ *   env.TAVILY_API_KEY  (secrets)
  */
 
 /**
@@ -41,6 +42,11 @@ const PROVIDERS = {
     url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     model: (env) => env.GEMINI_MODEL || 'gemini-3.1-flash-lite',
     key: (env) => env.GEMINI_API_KEY,
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    model: (env) => env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free',
+    key: (env) => env.OPENROUTER_API_KEY,
   },
   nvidia: {
     url: 'https://integrate.api.nvidia.com/v1/chat/completions',

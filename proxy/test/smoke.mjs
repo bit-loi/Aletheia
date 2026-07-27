@@ -12,7 +12,7 @@ const ORIGIN = 'chrome-extension://kocekjjgeahfmeolkkffcnbdjnpapdkb';
 // No RL binding and no keys, exactly like a fresh Vercel deployment.
 const env = {
   ALLOWED_ORIGINS: 'chrome-extension://*',
-  LLM_CHAIN: 'gemini,groq',
+  LLM_CHAIN: 'gemini,openrouter,groq',
   SEARCH_CHAIN: 'tavily,wikipedia',
 };
 
@@ -75,6 +75,21 @@ await check(
 
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
+  if (String(input) === 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions') {
+    return new Response(null, { status: 400 });
+  }
+  if (String(input) === 'https://openrouter.ai/api/v1/chat/completions') {
+    const authorized = init?.headers?.authorization === 'Bearer server-only-openrouter';
+    const body = JSON.parse(init?.body || '{}');
+    return authorized && body.model === 'google/gemma-4-26b-a4b-it:free'
+      ? new Response(JSON.stringify({
+          choices: [{ message: { content: '["OpenRouter fallback works."]' } }],
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      : new Response(null, { status: 401 });
+  }
   if (String(input) === 'https://generativelanguage.googleapis.com/v1beta/auth_tokens') {
     const authorized = init?.headers?.['x-goog-api-key'] === 'server-only-secret';
     return authorized
@@ -86,6 +101,21 @@ globalThis.fetch = async (input, init) => {
   }
   return realFetch(input, init);
 };
+await check(
+  'chat falls through Gemini to the pinned OpenRouter free model',
+  post('/v1/chat', { messages: [{ role: 'user', content: 'extract a claim' }] }),
+  (r, b) => r.status === 200 &&
+    b.provider === 'openrouter' &&
+    b.content === '["OpenRouter fallback works."]' &&
+    !JSON.stringify(b).includes('server-only-openrouter'),
+  {
+    ...env,
+    LLM_CHAIN: 'gemini,openrouter',
+    GEMINI_API_KEY: 'configured-but-rejected',
+    OPENROUTER_API_KEY: 'server-only-openrouter',
+    OPENROUTER_MODEL: 'google/gemma-4-26b-a4b-it:free',
+  }
+);
 await check(
   'Gemini server secret exchanges for a short-lived Live token',
   post('/v1/gemini-live-token', {}),
