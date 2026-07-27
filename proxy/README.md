@@ -10,7 +10,34 @@ So the extension ships with no keys. It calls this Worker, which holds them.
 
 Users can still enter their own keys in the extension popup. That path bypasses the proxy entirely and keeps their traffic off the shared quota.
 
-## Deploy
+## Where to deploy
+
+The logic is standard `fetch(Request) -> Response`, so it runs unmodified on any
+edge runtime. Two entry points are provided:
+
+| Platform | Entry point | Notes |
+|---|---|---|
+| Cloudflare Workers | `src/index.js` | Native. Only option with the rate-limit binding. |
+| Vercel Edge | `api/index.js` | Thin adapter. Deployable from GitHub with **no local tooling**. |
+
+**No rate limiting outside Cloudflare.** The limiter is a Workers binding. On
+Vercel `env.RL` is undefined, the code degrades and logs `rate_limiter_missing`,
+and the proxy is unprotected. Fine for a demo behind an unlisted URL; add
+Vercel's WAF/rate limiting or Upstash before publicising it.
+
+### Vercel, without installing anything
+
+1. Push this repo to GitHub.
+2. vercel.com → Add New → Project → import the repo.
+3. Set **Root Directory** to `proxy`.
+4. Settings → Environment Variables:
+   - `GEMINI_API_KEY`, `TAVILY_API_KEY` (mark as secret)
+   - `ALLOWED_ORIGINS`, `LLM_CHAIN=gemini,groq`, `GEMINI_MODEL`, `SEARCH_CHAIN=tavily,wikipedia`
+5. Deploy. The URL it prints goes into `../config.js` and `../manifest.json`.
+
+No npm, no CLI, no login flow in a terminal.
+
+## Deploy on Cloudflare
 
 ```bash
 cd proxy
