@@ -91,7 +91,11 @@ async function ensureContentScript(tabId) {
       });
       await chrome.scripting.executeScript({
         target: { tabId },
+        // KEEP IN SYNC with content_scripts[0].js in manifest.json. If these two
+        // lists diverge, the overlay works on page load but breaks on dynamic
+        // injection (or vice versa), which is painful to diagnose.
         files: [
+          'shared/tokens.js',
           'content/styles.js',
           'content/extractor.js',
           'content/overlay.js',
@@ -129,22 +133,25 @@ async function handleArticleCheck(tabId, text, title, url) {
       phase: 'extracting',
     });
 
-    let claims;
-    try {
-      claims = await extractClaims(text);
-    } catch (err) {
-      console.warn('[Aletheia SW] Claim extraction error fallback for demo:', err.message);
-      claims = [
-        "Air strikes targeted strategic positions in the region.",
-        "Defence officials confirmed security measures were heightened."
-      ];
-    }
+    // Deliberately not caught here. This used to substitute two hardcoded
+    // claims on any extraction failure, which meant the overlay reported
+    // "Done: 2 claims checked" for sentences that appeared nowhere in the
+    // article. The outer handler turns a throw into PIPELINE_ERROR, which the
+    // overlay renders as a real error with a retry.
+    const claims = await extractClaims(text);
 
     if (!claims || claims.length === 0) {
+      // Terminal, not a failure. This previously sent a youtube_live STATUS_UPDATE
+      // and returned with no terminal message at all, so an article with no
+      // checkable claims left the overlay stuck on "Listening & transcribing
+      // audio…" forever, which is also the wrong copy for article mode.
+      //
+      // Additive fields: older content scripts ignore claimsFound/mode and just
+      // see a normal completion.
       sendToTab(tabId, {
-        type: 'STATUS_UPDATE',
-        status: 'Listening & transcribing audio…',
-        phase: 'youtube_live',
+        type: 'PIPELINE_COMPLETE',
+        claimsFound: 0,
+        mode: title === 'YouTube transcript' ? 'youtube' : 'article',
       });
       return;
     }
