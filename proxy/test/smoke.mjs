@@ -24,8 +24,8 @@ const post = (path, body, origin = ORIGIN) =>
   });
 
 let failures = 0;
-async function check(name, req, expect) {
-  const res = await worker.fetch(req, env);
+async function check(name, req, expect, testEnv = env) {
+  const res = await worker.fetch(req, testEnv);
   const text = await res.text();
   let parsed;
   try { parsed = JSON.parse(text); } catch { parsed = text; }
@@ -72,6 +72,36 @@ await check(
   post('/v1/chat', { messages: [{ role: 'user', content: 'hi' }] }),
   (r, b) => r.status === 503 && b.error === 'all providers unavailable'
 );
+
+await check(
+  'Deepgram token endpoint fails closed without its server secret',
+  post('/v1/deepgram-token', {}),
+  (r, b) => r.status === 503 && /not configured/.test(b.error || '')
+);
+
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  if (String(input) === 'https://api.deepgram.com/v1/auth/grant') {
+    const authorized = init?.headers?.authorization === 'Token server-only-secret';
+    return authorized
+      ? new Response(JSON.stringify({ access_token: 'short-lived-token', expires_in: 30 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      : new Response(null, { status: 401 });
+  }
+  return realFetch(input, init);
+};
+await check(
+  'Deepgram server secret exchanges for a short-lived client token',
+  post('/v1/deepgram-token', {}),
+  (r, b) => r.status === 200 &&
+    b.access_token === 'short-lived-token' &&
+    b.expires_in === 30 &&
+    !JSON.stringify(b).includes('server-only-secret'),
+  { ...env, DEEPGRAM_API_KEY: 'server-only-secret' }
+);
+globalThis.fetch = realFetch;
 
 await check(
   'unknown route 404s',

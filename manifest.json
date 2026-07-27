@@ -12,6 +12,7 @@
   ],
   "host_permissions": [
     "*://*.youtube.com/*",
+    "*://youtu.be/*",
     "https://aletheia-proxy.rizkymirza18.workers.dev/*",
     "https://generativelanguage.googleapis.com/*",
     "https://api.tavily.com/*",

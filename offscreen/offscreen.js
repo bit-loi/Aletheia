@@ -13,7 +13,7 @@
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'OFFSCREEN_START_CAPTURE') {
-    startCapture(msg.streamId, msg.deepgramKey);
+    startCapture(msg.streamId, msg.deepgramCredential, msg.deepgramAuthScheme);
     sendResponse({ ack: true });
   } else if (msg.type === 'OFFSCREEN_STOP_CAPTURE') {
     stopCapture();
@@ -33,7 +33,7 @@ const BUFFER_INTERVAL_MS = 5000; // 5-second fast windows for video demo real-ti
 
 // ─── Capture logic ────────────────────────────────────────────────────────────
 
-async function startCapture(streamId, deepgramKey) {
+async function startCapture(streamId, deepgramCredential, deepgramAuthScheme) {
   try {
     if (!streamId) {
       throw new Error('No streamId provided to offscreen capture');
@@ -73,15 +73,11 @@ async function startCapture(streamId, deepgramKey) {
       console.warn('[Aletheia Offscreen] AudioContext speaker playback warning:', aErr);
     }
 
-    if (!deepgramKey || !deepgramKey.trim()) {
-      throw new Error('Deepgram API Key is missing or invalid.');
+    if (!deepgramCredential || !deepgramCredential.trim()) {
+      throw new Error('Deepgram credential is missing.');
     }
-    const cleanKey = deepgramKey.trim();
-
-    console.log(
-      '[Aletheia Offscreen] Connecting to Deepgram with Key:',
-      cleanKey ? `${cleanKey.slice(0, 6)}...` : 'EMPTY'
-    );
+    const credential = deepgramCredential.trim();
+    const authScheme = deepgramAuthScheme === 'bearer' ? 'bearer' : 'token';
 
     // Open Deepgram WebSocket (authenticate via subprotocol)
     const dgUrl =
@@ -92,7 +88,7 @@ async function startCapture(streamId, deepgramKey) {
       `interim_results=false&` +
       `punctuate=true`;
 
-    deepgramSocket = new WebSocket(dgUrl, ['token', cleanKey]);
+    deepgramSocket = new WebSocket(dgUrl, [authScheme, credential]);
 
     deepgramSocket.onopen = () => {
       console.log('[Aletheia Offscreen] Deepgram WebSocket connected successfully.');
@@ -141,7 +137,7 @@ async function startCapture(streamId, deepgramKey) {
       console.error('[Aletheia Offscreen] Deepgram WebSocket error event:', err);
       chrome.runtime.sendMessage({
         type: 'OFFSCREEN_ERROR',
-        error: 'Deepgram connection rejected. Check that your API key starts with "dg-", has remaining credits, and is valid.',
+        error: 'Deepgram rejected the transcription connection. Check the proxy credential and account quota.',
       });
     };
 

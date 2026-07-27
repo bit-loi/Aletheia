@@ -7,16 +7,18 @@
  * everyone's. This Worker exists so users can install and go.
  *
  * Endpoints
- *   POST /v1/chat    OpenAI-shaped chat completion, tried across a provider chain
- *   POST /v1/search  Tavily search
- *   GET  /health     liveness
+ *   POST /v1/chat            OpenAI-shaped chat completion
+ *   POST /v1/search          evidence search
+ *   POST /v1/deepgram-token  short-lived browser transcription credential
+ *   GET  /health             liveness
  *
  * Bindings (see wrangler.jsonc)
  *   env.RL               rate limiter
  *   env.ALLOWED_ORIGINS  comma-separated chrome-extension:// origins; supports
  *                        chrome-extension://* for unpacked installs
  *   env.LLM_CHAIN        comma-separated provider ids, in preference order
- *   env.GEMINI_API_KEY / env.GROQ_API_KEY / env.TAVILY_API_KEY  (secrets)
+ *   env.GEMINI_API_KEY / env.GROQ_API_KEY / env.TAVILY_API_KEY /
+ *   env.DEEPGRAM_API_KEY  (secrets)
  */
 
 /**
@@ -292,6 +294,49 @@ async function handleSearch(request, env, origin) {
   return json({ results: [], attempts }, 200, origin);
 }
 
+/**
+ * Exchange the server-side Deepgram key for a short-lived access token. The
+ * extension receives only the temporary token and authenticates its browser
+ * WebSocket with the `bearer` subprotocol.
+ */
+async function handleDeepgramToken(env, origin) {
+  if (!env.DEEPGRAM_API_KEY) {
+    return json({ error: 'YouTube transcription is not configured' }, 503, origin);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    const response = await fetch('https://api.deepgram.com/v1/auth/grant', {
+      method: 'POST',
+      headers: {
+        authorization: `Token ${env.DEEPGRAM_API_KEY}`,
+        accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.log(JSON.stringify({ event: 'deepgram_grant_failed', status: response.status }));
+      return json({ error: 'YouTube transcription is unavailable' }, 502, origin);
+    }
+
+    const payload = await response.json();
+    if (!payload.access_token) {
+      return json({ error: 'Deepgram returned no access token' }, 502, origin);
+    }
+    return json({
+      access_token: payload.access_token,
+      expires_in: payload.expires_in,
+    }, 200, origin);
+  } catch (err) {
+    const detail = err.name === 'AbortError' ? 'timeout' : 'network';
+    console.log(JSON.stringify({ event: 'deepgram_grant_failed', detail }));
+    return json({ error: 'YouTube transcription is unavailable' }, 502, origin);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -329,6 +374,7 @@ export default {
     try {
       if (url.pathname === '/v1/chat') return await handleChat(request, env, origin);
       if (url.pathname === '/v1/search') return await handleSearch(request, env, origin);
+      if (url.pathname === '/v1/deepgram-token') return await handleDeepgramToken(env, origin);
       return json({ error: 'not found' }, 404, origin);
     } catch (err) {
       // Explicit handling rather than passThroughOnException, which would hide

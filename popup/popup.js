@@ -1,22 +1,17 @@
 import { CONFIG } from '../config.js';
 
 // === Elements ===
-const llmKeyInput = document.getElementById('llm-key');
-const tavilyKeyInput = document.getElementById('tavily-key');
-const deepgramKeyInput = document.getElementById('deepgram-key');
 const themeToggle = document.getElementById('theme-toggle');
-const saveBtn = document.getElementById('save-btn');
-const saveStatus = document.getElementById('save-status');
-const firstRun = document.getElementById('first-run');
-
-/**
- * Show the "Ready to use" note while the user has no personal keys, i.e. while
- * they are on the shared proxy quota. Keys are optional, so this is
- * informational, not a setup gate.
- */
-function updateFirstRun(llmKey, tavilyKey) {
-  if (firstRun) firstRun.classList.toggle('is-visible', !(llmKey && tavilyKey));
-}
+const startFactCheckBtn = document.getElementById('start-fact-check-btn');
+const modeTitle = document.getElementById('mode-title');
+const modeDescription = document.getElementById('mode-description');
+const modeHint = document.getElementById('mode-hint');
+const actionStatus = document.getElementById('action-status');
+const connectionStatus = document.getElementById('connection-status');
+const connectionTitle = document.getElementById('connection-title');
+const connectionDetail = document.getElementById('connection-detail');
+let activeTab = null;
+let activeMode = 'unsupported';
 
 function applyTheme(isLight) {
   if (isLight) {
@@ -28,25 +23,7 @@ function applyTheme(isLight) {
   }
 }
 
-// === Load saved settings ===
-chrome.storage.sync.get(
-  ['llmKey', 'nvidiaKey', 'tavilyKey', 'deepgramKey', 'theme'],
-  (data) => {
-    if (llmKeyInput) {
-      // `nvidiaKey` is the legacy name; read it so an already-saved key is not
-      // silently lost after the switch to Gemini.
-      llmKeyInput.value = data.llmKey || data.nvidiaKey || CONFIG.LLM_API_KEY || '';
-    }
-    if (data.tavilyKey && tavilyKeyInput) {
-      tavilyKeyInput.value = data.tavilyKey;
-    }
-    if (data.deepgramKey && deepgramKeyInput) {
-      deepgramKeyInput.value = data.deepgramKey;
-    }
-    applyTheme(data.theme === 'light');
-    updateFirstRun(data.llmKey || data.nvidiaKey, data.tavilyKey);
-  }
-);
+chrome.storage.sync.get(['theme'], (data) => applyTheme(data.theme === 'light'));
 
 // The overlay live-syncs theme via storage.onChanged; without this the popup
 // only picked up the theme on load, so the two surfaces could disagree.
@@ -63,63 +40,94 @@ themeToggle.addEventListener('change', () => {
   chrome.storage.sync.set({ theme: isLight ? 'light' : 'dark' });
 });
 
-// === Save settings ===
-saveBtn.addEventListener('click', () => {
-  const settings = {
-    llmKey: llmKeyInput ? llmKeyInput.value.trim() : (CONFIG.LLM_API_KEY || ''),
-    tavilyKey: tavilyKeyInput.value.trim(),
-    deepgramKey: deepgramKeyInput.value.trim(),
-    theme: themeToggle.checked ? 'light' : 'dark',
-  };
-
-  chrome.storage.sync.set(settings, () => {
-    updateFirstRun(settings.llmKey, settings.tavilyKey);
-    saveStatus.textContent = 'SAVED';
-    saveStatus.classList.add('visible');
-    setTimeout(() => {
-      saveStatus.classList.remove('visible');
-    }, 2000);
-  });
-});
-
 // === Active Tab Fact-Check Trigger ===
-const startFactCheckBtn = document.getElementById('start-youtube-btn');
+function isYouTubeVideo(urlString) {
+  try {
+    const url = new URL(urlString);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (host === 'youtu.be') return url.pathname.length > 1;
+    if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return false;
+    return url.pathname === '/watch' ||
+      url.pathname.startsWith('/live/') ||
+      url.pathname.startsWith('/shorts/');
+  } catch (_) {
+    return false;
+  }
+}
 
 /**
  * Show a transient message in the status line.
- *
- * Used instead of alert(), which can dismiss the popup entirely on some
- * platforms and would take the user's context with it.
  */
 function showNotice(text, ms = 3200) {
-  saveStatus.textContent = text;
-  saveStatus.classList.add('visible');
-  setTimeout(() => saveStatus.classList.remove('visible'), ms);
+  actionStatus.textContent = text;
+  actionStatus.classList.add('visible');
+  setTimeout(() => actionStatus.classList.remove('visible'), ms);
 }
 
-if (startFactCheckBtn) {
-  startFactCheckBtn.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+function renderMode(tab) {
+  activeTab = tab;
+  const isWebPage = Boolean(tab?.id && tab?.url?.startsWith('http'));
+  activeMode = isWebPage ? (isYouTubeVideo(tab.url) ? 'youtube' : 'article') : 'unsupported';
 
-    if (!tab || !tab.id || !tab.url || !tab.url.startsWith('http')) {
-      showNotice('Open a news article or YouTube video first.');
-      return;
-    }
+  if (activeMode === 'youtube') {
+    modeTitle.textContent = 'YouTube live check';
+    modeDescription.textContent = 'Aletheia listens to the playing video and checks spoken claims as they arrive.';
+    modeHint.textContent = 'Play the video with sound before you start. Keep this tab open while Aletheia listens.';
+    startFactCheckBtn.textContent = 'Listen to this video';
+    startFactCheckBtn.disabled = false;
+    return;
+  }
 
-    if (tab.url.includes('youtube.com/watch')) {
-      chrome.runtime.sendMessage({
-        type: 'START_YOUTUBE',
-        tabId: tab.id,
-      });
-    } else {
-      chrome.tabs.sendMessage(tab.id, { type: 'START_ARTICLE_CHECK' }).catch(() => {
-        showNotice('Reload this page to start fact-checking.');
-      });
-    }
+  if (activeMode === 'article') {
+    modeTitle.textContent = 'Article check';
+    modeDescription.textContent = 'Aletheia reads the current page, finds factual claims, and checks supporting sources.';
+    modeHint.textContent = 'Results appear in a panel on the current page.';
+    startFactCheckBtn.textContent = 'Check this page';
+    startFactCheckBtn.disabled = false;
+    return;
+  }
 
-    startFactCheckBtn.textContent = 'STARTED';
-    setTimeout(() => {
-      startFactCheckBtn.textContent = 'Start Fact-Check';
-    }, 2000);
+  modeTitle.textContent = 'Open something to check';
+  modeDescription.textContent = 'Switch to a web article or a YouTube video, then open Aletheia again.';
+  modeHint.textContent = 'Browser settings and internal pages cannot be fact-checked.';
+  startFactCheckBtn.textContent = 'No supported page';
+  startFactCheckBtn.disabled = true;
+}
+
+chrome.tabs.query({ active: true, currentWindow: true })
+  .then(([tab]) => renderMode(tab))
+  .catch(() => renderMode(null));
+
+fetch(`${CONFIG.PROXY_URL}/health`)
+  .then((response) => {
+    if (!response.ok) throw new Error('Proxy unavailable');
+    connectionTitle.textContent = 'Secure proxy connected';
+    connectionDetail.textContent = 'Gemini and Tavily are ready. No setup needed.';
+  })
+  .catch(() => {
+    connectionStatus.classList.add('is-offline');
+    connectionTitle.textContent = 'Proxy unavailable';
+    connectionDetail.textContent = 'Check your connection, then reopen Aletheia.';
   });
-}
+
+startFactCheckBtn.addEventListener('click', async () => {
+  if (!activeTab?.id || activeMode === 'unsupported') return;
+
+  startFactCheckBtn.disabled = true;
+  startFactCheckBtn.textContent = activeMode === 'youtube' ? 'Starting listener…' : 'Starting check…';
+
+  if (activeMode === 'youtube') {
+    await chrome.runtime.sendMessage({
+      type: 'START_YOUTUBE',
+      tabId: activeTab.id,
+    });
+  } else {
+    await chrome.tabs.sendMessage(activeTab.id, { type: 'START_ARTICLE_CHECK' }).catch(() => {
+      showNotice('Reload this page, then try again.');
+    });
+  }
+
+  startFactCheckBtn.textContent = 'Started';
+  showNotice('The fact-check panel is opening on this tab.');
+  setTimeout(() => renderMode(activeTab), 1800);
+});

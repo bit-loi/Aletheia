@@ -1,154 +1,85 @@
 /* ==========================================================================
-   Aletheia Popup - Settings form, inputs, buttons, footer
+   Aletheia Popup - Launch panel
 
    Every value comes from shared/tokens.js. The ~95 lines of
    body.light-theme overrides this file used to carry are gone: the tokens
    swap under body.light-theme, so each rule below follows the theme for free.
    ========================================================================== */
 
-/* ===== First-run banner ===== */
-.first-run {
-  display: none;
-  margin-bottom: var(--al-space-4);
+.launch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--al-space-3);
+}
+
+.connection-status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--al-space-2);
   padding: var(--al-space-3);
   border: var(--al-hairline) solid var(--al-border-hairline);
-  border-left: 3px solid var(--al-v-misleading-accent);
   border-radius: var(--al-radius-sm);
   background: var(--al-surface-raised);
 }
-.first-run.is-visible { display: block; }
-.first-run__title {
-  font-family: var(--al-font-mono);
-  font-size: var(--al-text-2xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--al-ink);
-  margin-bottom: var(--al-space-1);
-}
-.first-run__body {
-  font-size: var(--al-text-xs);
-  line-height: 1.5;
-  color: var(--al-ink-muted);
-}
 
-/* ===== Section heading ===== */
-.settings-section h2 {
-  font-size: var(--al-text-2xs);
-  font-family: var(--al-font-mono);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--al-ink-muted);
-  margin-bottom: var(--al-space-2);
-  margin-top: var(--al-space-4);
-}
-.settings-section h2:first-child { margin-top: 0; }
-
-/* ===== Fields ===== */
-.field { margin-bottom: var(--al-space-3); }
-
-.field label {
-  display: flex;
-  align-items: center;
-  gap: var(--al-space-2);
-  font-size: var(--al-text-sm);
-  font-weight: 600;
-  color: var(--al-ink);
-  margin-bottom: var(--al-space-2);
-}
-
-.optional-badge {
-  font-size: var(--al-text-2xs);
-  font-family: var(--al-font-mono);
-  padding: 1px var(--al-space-1);
-  border-radius: var(--al-radius-xs);
-  background: transparent;
-  color: var(--al-ink-muted);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  border: var(--al-hairline) solid var(--al-border-hairline);
-}
-
-.field input[type="password"],
-.field input[type="text"] {
-  width: 100%;
-  padding: var(--al-space-2) var(--al-space-3);
-  border: var(--al-hairline) solid var(--al-border-hairline);
-  border-radius: var(--al-radius-sm);
-  background: var(--al-surface-raised);
-  color: var(--al-ink);
-  caret-color: var(--al-ink);
-  font-size: var(--al-text-sm);
-  font-family: var(--al-font-mono);
-  transition: border-color var(--al-dur-2) var(--al-ease-standard),
-              background var(--al-dur-2) var(--al-ease-standard);
-  outline: none;
-}
-
-.field input:focus-visible {
-  border-color: var(--al-focus);
-  outline: var(--al-focus-width) solid var(--al-focus);
-  outline-offset: 1px;
-}
-
-/* Placeholders must clear WCAG AA against the input fill, so they use the
-   muted ink token rather than an opacity fade on the primary ink. */
-.field input::placeholder {
-  color: var(--al-ink-muted);
-  opacity: 1;
-}
-
-/* ===== Engine card ===== */
-.engine-badge-card {
-  width: 100%;
-  padding: var(--al-space-2) var(--al-space-3);
-  border: var(--al-hairline) solid var(--al-border-hairline);
-  border-radius: var(--al-radius-sm);
-  background: var(--al-surface-raised);
-  color: var(--al-ink);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--al-space-2);
-  box-sizing: border-box;
-}
-
-.engine-model-name {
-  font-family: var(--al-font-mono);
-  font-size: var(--al-text-xs);
-  color: var(--al-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.engine-tag {
+.connection-status__dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
   flex: none;
-  background: transparent;
-  color: var(--al-ink-muted);
+  border-radius: 50%;
+  background: var(--al-v-true-accent);
+}
+.connection-status.is-offline .connection-status__dot {
+  background: var(--al-v-false-accent);
+}
+
+.connection-status__title {
   font-family: var(--al-font-mono);
   font-size: var(--al-text-2xs);
   font-weight: 700;
-  padding: 1px var(--al-space-1);
-  border-radius: var(--al-radius-xs);
-  border: var(--al-hairline) solid var(--al-border-hairline);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.connection-status__detail {
+  margin-top: var(--al-space-1);
+  color: var(--al-ink-muted);
+  font-size: var(--al-text-xs);
+}
+
+.mode-card {
+  padding: var(--al-space-4);
+  border: var(--al-hairline) solid var(--al-border-hairline);
+  border-radius: var(--al-radius-sm);
+  background: var(--al-surface);
+}
+
+.mode-card__label {
+  font-family: var(--al-font-mono);
+  color: var(--al-ink-muted);
+  font-size: var(--al-text-2xs);
+  font-weight: 700;
   letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-/* ===== Actions ===== */
-.actions {
-  display: flex;
-  align-items: center;
-  gap: var(--al-space-2);
-  margin-top: var(--al-space-5);
+.mode-card h2 {
+  margin-top: var(--al-space-2);
+  font-size: var(--al-text-lg);
+  line-height: 1.25;
 }
 
-.btn-primary,
-.btn-secondary {
-  padding: var(--al-space-2) var(--al-space-4);
+.mode-card p {
+  margin-top: var(--al-space-2);
+  color: var(--al-ink-muted);
+  font-size: var(--al-text-sm);
+  line-height: 1.55;
+}
+
+.btn-primary {
+  width: 100%;
+  padding: var(--al-space-3) var(--al-space-4);
   border-radius: var(--al-radius-sm);
   font-size: var(--al-text-2xs);
   font-weight: 700;
@@ -157,31 +88,22 @@
   letter-spacing: 0.1em;
   white-space: nowrap;
   cursor: pointer;
-  border: var(--al-hairline) solid var(--al-border-hairline);
-  transition: transform var(--al-dur-1) var(--al-ease-standard),
-              background var(--al-dur-2) var(--al-ease-standard);
-}
-
-/* Inverted fill. Reads as the primary action in both themes because both
-   sides of the pair come from theme-swapped tokens. */
-.btn-primary {
+  border: var(--al-hairline) solid var(--al-ink);
   background: var(--al-ink);
   color: var(--al-surface);
-  border-color: var(--al-ink);
+  transition: transform var(--al-dur-1) var(--al-ease-standard),
+              opacity var(--al-dur-2) var(--al-ease-standard);
 }
 .btn-primary:hover { opacity: 0.88; }
 .btn-primary:active { transform: translate(1px, 1px); }
-
-.btn-secondary {
-  background: transparent;
-  color: var(--al-ink);
+.btn-primary:disabled {
+  cursor: default;
+  opacity: 0.45;
+  transform: none;
 }
-.btn-secondary:hover { background: var(--al-surface-raised); }
-.btn-secondary:active { transform: translate(1px, 1px); }
 
-/* Carries both "SAVED" and inline notices that used to be alert() calls, so it
-   stays neutral rather than success-green. */
-.save-status {
+.action-status {
+  min-height: 1.5em;
   font-size: var(--al-text-2xs);
   font-family: var(--al-font-mono);
   font-weight: 700;
@@ -190,7 +112,7 @@
   opacity: 0;
   transition: opacity var(--al-dur-2) var(--al-ease-standard);
 }
-.save-status.visible { opacity: 1; }
+.action-status.visible { opacity: 1; }
 
 /* ===== Footer ===== */
 .popup-footer {

@@ -139,8 +139,8 @@ By revealing source provenance, logic pathways, and underlying evidence for ever
 - Google Chrome (or any Chromium-based browser)
 - No API keys are required for article fact-checking. The hosted proxy provides
   Gemini and Tavily on a shared, rate-limited quota.
-- A **Deepgram** key is currently required only for YouTube audio mode. Get one
-  from [console.deepgram.com](https://console.deepgram.com/).
+- No user API keys are required. The hosted proxy supplies Gemini, Tavily, and
+  a short-lived Deepgram token for YouTube audio mode.
 
 ### 2. Installation
 1. Clone or download this repository:
@@ -153,10 +153,9 @@ By revealing source provenance, logic pathways, and underlying evidence for ever
 
 ### 3. Start Fact-Checking
 1. Open a news article and click the **Aletheia icon**.
-2. Click **Start Fact-Check**. No Gemini or Tavily setup is required.
-3. Optional: add personal Gemini and Tavily keys in Settings to bypass the
-   shared quota. Personal keys stay in `chrome.storage.sync`.
-4. Add a Deepgram key only when using YouTube audio mode.
+2. Click **Check this page**. No setup is required.
+3. On a playing YouTube video, click **Listen to this video** to check spoken
+   claims as they arrive.
 
 ---
 
@@ -185,13 +184,13 @@ aletheia/
 |   +-- offscreen.js              # MediaRecorder & Deepgram WebSocket stream
 |
 |-- popup/
-|   |-- popup.html                # Neobrutalist settings UI shell
-|   |-- popup.js                  # Settings persistence & theme handler
+|   |-- popup.html                # One-click launch panel
+|   |-- popup.js                  # Page-mode detection, launch & theme handler
 |   |-- popup.css                 # Main CSS entry point
 |   +-- styles/
 |       |-- base.css              # Layout resets & CSS custom properties
 |       |-- header.css            # Header & theme toggle switch
-|       +-- form.css              # Input fields, engine cards & buttons
+|       +-- form.css              # Connection status, mode card & action button
 |
 +-- icons/                        # Extension brand assets (16, 48, 128, logo)
 ```

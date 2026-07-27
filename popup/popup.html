@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aletheia Settings</title>
+  <title>Aletheia</title>
   <!-- Blocking classic script: runs before the stylesheets below, so tokens are
        in the cascade before first paint and the popup never flashes unstyled. -->
   <script src="../shared/tokens.js" data-al-inject data-al-root=":root" data-al-light="body.light-theme"></script>
@@ -33,57 +33,27 @@
       </div>
     </header>
 
-    <!-- Keys are optional: without them the extension uses a hosted proxy on a
-         shared quota. This explains that state rather than blocking on it. -->
-    <div class="first-run" id="first-run" role="status">
-      <div class="first-run__title">Ready to use</div>
-      <div class="first-run__body">No setup needed. Aletheia runs on a shared quota, which is rate-limited. Add your own keys below for faster, unmetered checks. Keys stay in this browser.</div>
-    </div>
-
-    <section class="settings-section">
-      <h2>API Keys &amp; Model</h2>
-
-      <div class="field">
-        <label for="llm-key">
-          Gemini API Key
-          <span class="optional-badge">optional</span>
-        </label>
-        <input type="password" id="llm-key" placeholder="AI…" autocomplete="off">
-      </div>
-
-      <div class="field">
-        <label for="tavily-key">
-          Tavily API Key
-          <span class="optional-badge">optional</span>
-        </label>
-        <input type="password" id="tavily-key" placeholder="tvly-…" autocomplete="off">
-      </div>
-
-      <div class="field">
-        <label for="deepgram-key">
-          Deepgram API Key
-          <span class="optional-badge">YouTube mode</span>
-        </label>
-        <input type="password" id="deepgram-key" placeholder="dg-…" autocomplete="off">
-      </div>
-
-      <div class="field">
-        <label>Active LLM Engine</label>
-        <div class="engine-badge-card">
-          <span class="engine-model-name">gemini-2.5-flash</span>
-          <span class="engine-tag">Google</span>
+    <main class="launch">
+      <div class="connection-status" id="connection-status" role="status">
+        <span class="connection-status__dot" aria-hidden="true"></span>
+        <div>
+          <div class="connection-status__title" id="connection-title">Connecting to secure proxy…</div>
+          <div class="connection-status__detail" id="connection-detail">Checking shared services.</div>
         </div>
       </div>
-    </section>
 
-    <div class="actions">
-      <button id="start-youtube-btn" class="btn-secondary">Start Fact-Check</button>
-      <button id="save-btn" class="btn-primary">Save Settings</button>
-      <span id="save-status" class="save-status" role="status" aria-live="polite"></span>
-    </div>
+      <section class="mode-card" aria-labelledby="mode-title">
+        <div class="mode-card__label">Current tab</div>
+        <h2 id="mode-title">Checking this page…</h2>
+        <p id="mode-description">Aletheia is detecting the best fact-check mode.</p>
+      </section>
+
+      <button id="start-fact-check-btn" class="btn-primary" disabled>Checking tab…</button>
+      <p id="action-status" class="action-status" role="status" aria-live="polite"></p>
+    </main>
 
     <footer class="popup-footer">
-      <p>Enter your own API keys. They are stored locally in your browser and never sent anywhere except the respective API endpoints.</p>
+      <p id="mode-hint">Open an article or YouTube video, then start a check.</p>
     </footer>
   </div>
 

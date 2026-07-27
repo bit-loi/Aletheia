@@ -51,4 +51,5 @@
   //   wrangler secret put GEMINI_API_KEY
   //   wrangler secret put GROQ_API_KEY     (optional, second in the chain)
   //   wrangler secret put TAVILY_API_KEY
+  //   wrangler secret put DEEPGRAM_API_KEY
 }

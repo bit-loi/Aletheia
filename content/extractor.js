@@ -16,13 +16,15 @@ window.Aletheia = window.Aletheia || {};
 // ─── Page Detection ───────────────────────────────────────────────────────────
 
 /**
- * Is the current page a YouTube watch page?
+ * Is the current page a YouTube video page?
  */
 window.Aletheia.isYouTubePage = function () {
-  return (
-    location.hostname === 'www.youtube.com' &&
-    location.pathname === '/watch'
-  );
+  const host = location.hostname.toLowerCase().replace(/^www\./, '');
+  if (host === 'youtu.be') return location.pathname.length > 1;
+  if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return false;
+  return location.pathname === '/watch' ||
+    location.pathname.startsWith('/live/') ||
+    location.pathname.startsWith('/shorts/');
 };
 
 /**

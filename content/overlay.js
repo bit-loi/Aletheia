@@ -398,16 +398,15 @@ window.Aletheia.Overlay = class AletheiaOverlay {
     `);
   }
 
-  /** No API keys configured. The extension is inert without them, so say so
-   *  rather than failing silently at the first request. */
+  /** Hosted services are unavailable. */
   renderSetupState() {
     this._replaceFeed(`
       <div class="al-placeholder">
-        <div class="al-placeholder__title">Setup needed</div>
-        <div class="al-placeholder__body">Add your NVIDIA and Tavily API keys in the Aletheia toolbar menu, then run the check again.</div>
+        <div class="al-placeholder__title">Service unavailable</div>
+        <div class="al-placeholder__body">Aletheia could not reach its shared proxy. Check your connection and try again.</div>
       </div>
     `);
-    this.announce('Aletheia needs API keys before it can check claims.');
+    this.announce('Aletheia could not reach its shared proxy.');
   }
 
   renderNoClaims(mode) {

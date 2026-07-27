@@ -14,7 +14,8 @@ import { CONFIG } from '../config.js';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Reads API keys from chrome.storage.sync.
+ * Reads legacy personal keys from chrome.storage.sync. New installs use the
+ * hosted proxy and do not need to save credentials.
  */
 export async function getSettings() {
   return new Promise((resolve, reject) => {
@@ -80,7 +81,7 @@ function parseJSON(raw) {
  */
 async function callProxy(path, body) {
   const base = (CONFIG.PROXY_URL || '').replace(/\/$/, '');
-  if (!base) throw new Error('No API key configured and no proxy URL set.');
+  if (!base) throw new Error('The Aletheia proxy is not configured.');
 
   const res = await fetch(`${base}${path}`, {
     method: 'POST',
@@ -89,7 +90,7 @@ async function callProxy(path, body) {
   });
 
   if (res.status === 429) {
-    throw new Error('Aletheia is busy right now (shared quota). Try again shortly, or add your own API keys in the extension popup.');
+    throw new Error('Aletheia is busy right now (shared quota). Try again shortly.');
   }
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));

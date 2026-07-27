@@ -10,6 +10,7 @@
 
 import { extractClaims, retrieveEvidence, generateVerdict } from './modules/pipeline.js';
 import { getCachedVerdict, cacheVerdict } from './modules/cache.js';
+import { CONFIG } from './config.js';
 
 // ─── Message Router ───────────────────────────────────────────────────────────
 
@@ -67,6 +68,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         status: `Transcription Error: ${msg.error}`,
         phase: 'error',
       });
+    }
+    sendResponse({ ack: true });
+  } else if (msg.type === 'STATUS_UPDATE' && !sender.tab) {
+    // Offscreen documents have no sender.tab. Relay their capture/transcription
+    // status to the YouTube tab instead of silently dropping it.
+    if (activeYouTubeTabId) {
+      sendToTab(activeYouTubeTabId, msg);
     }
     sendResponse({ ack: true });
   }
@@ -252,16 +260,39 @@ async function handleArticleCheck(tabId, text, title, url) {
 let offscreenCreated = false;
 let activeYouTubeTabId = null;
 
+/**
+ * Prefer a previously saved personal key for backwards compatibility. New
+ * installs obtain a 30-second Deepgram access token from the hosted proxy, so
+ * no long-lived credential ever reaches storage or source code.
+ */
+async function getDeepgramCredential() {
+  const data = await chrome.storage.sync.get(['deepgramKey']);
+  const personalKey = data.deepgramKey ? data.deepgramKey.trim() : '';
+  if (personalKey) {
+    return { value: personalKey, scheme: 'token' };
+  }
+
+  const response = await fetch(`${CONFIG.PROXY_URL}/v1/deepgram-token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token) {
+    throw new Error(payload.error || 'YouTube transcription is unavailable');
+  }
+  return { value: payload.access_token, scheme: 'bearer' };
+}
+
 async function handleYouTubeStart(tabId, streamId) {
   activeYouTubeTabId = tabId;
 
-  const data = await chrome.storage.sync.get(['deepgramKey']);
-  const deepgramKey = data.deepgramKey ? data.deepgramKey.trim() : '';
-
-  if (!deepgramKey) {
+  let credential;
+  try {
+    credential = await getDeepgramCredential();
+  } catch (err) {
     sendToTab(tabId, {
       type: 'STATUS_UPDATE',
-      status: 'Deepgram API Key required for YouTube mode. Configure in Settings (Extension Popup).',
+      status: `${err.message}. The shared proxy needs its Deepgram secret configured.`,
       phase: 'error',
     });
     return;
@@ -292,7 +323,8 @@ async function handleYouTubeStart(tabId, streamId) {
     chrome.runtime.sendMessage({
       type: 'OFFSCREEN_START_CAPTURE',
       streamId: streamId,
-      deepgramKey: deepgramKey,
+      deepgramCredential: credential.value,
+      deepgramAuthScheme: credential.scheme,
     });
   } catch (err) {
     console.error('[Aletheia SW] Failed to start Offscreen document:', err);
@@ -320,8 +352,8 @@ async function handleYouTubeStop() {
 }
 
 async function handleTranscriptChunk(tabId, text) {
-  // Will be implemented in Phase 5
-  // For now, just run the article pipeline on the chunk
+  // Spoken claims use the same extraction → evidence → verdict pipeline as an
+  // article; the source text simply arrives in short transcript windows.
   await handleArticleCheck(tabId, text, 'YouTube transcript', '');
 }
 

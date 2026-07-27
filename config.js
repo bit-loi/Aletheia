@@ -11,12 +11,12 @@ export const CONFIG = {
    * published key. The package is a zip that any user can read out of their own
    * profile directory, so the quota would immediately be everyone's.
    *
-   * Users may still supply their own keys in the popup, which bypasses this
-   * entirely and keeps their traffic off the shared quota.
+   * Legacy locally saved keys are still honored by the pipeline, but new
+   * installs need no credential setup.
    */
   PROXY_URL: 'https://aletheia-proxy.rizkymirza18.workers.dev',
 
-  /** Optional personal key, entered in the popup. Keep empty in source. */
+  /** Legacy direct-key fallback. Keep empty in source. */
   LLM_API_KEY: '',
   TAVILY_API_KEY: '',
   DEEPGRAM_API_KEY: '',
