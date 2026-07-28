@@ -25,10 +25,18 @@ export async function getSettings() {
         if (chrome.runtime.lastError) {
           return reject(new Error(chrome.runtime.lastError.message));
         }
+
+        let llmKey = data.llmKey || '';
+        if (!llmKey && data.nvidiaKey) {
+          if (data.nvidiaKey.startsWith('nvapi-')) {
+            chrome.storage.sync.remove(['nvidiaKey']).catch(() => {});
+          } else {
+            llmKey = data.nvidiaKey;
+          }
+        }
+
         resolve({
-          // `nvidiaKey` is the legacy name, read so anyone who already saved a
-          // key does not silently lose it after the switch to Gemini.
-          llmKey: data.llmKey || data.nvidiaKey || CONFIG.LLM_API_KEY,
+          llmKey: llmKey || CONFIG.LLM_API_KEY,
           tavilyKey: data.tavilyKey || CONFIG.TAVILY_API_KEY,
         });
       }
@@ -111,72 +119,52 @@ export async function callLLM(promptText, temperature = 0.3, maxTokens = 2048) {
   const { llmKey } = await getSettings();
   const apiKey = llmKey && llmKey.trim() ? llmKey.trim() : CONFIG.LLM_API_KEY;
 
-  // No personal key: the proxy answers, and handles provider failover itself.
-  if (!apiKey) {
-    const data = await callProxy('/v1/chat', {
-      messages: [{ role: 'user', content: promptText }],
-      temperature,
-      max_tokens: maxTokens,
-    });
-    return data.content;
-  }
+  // Try direct key if available and not a legacy nvapi key
+  if (apiKey && !apiKey.startsWith('nvapi-')) {
+    const url = CONFIG.LLM_DIRECT_URL;
+    const modelsToTry = [CONFIG.LLM_DIRECT_MODEL];
 
-  const url = CONFIG.LLM_DIRECT_URL;
-  const modelsToTry = [CONFIG.LLM_DIRECT_MODEL];
+    for (const model of modelsToTry) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: 'user', content: promptText }],
+            temperature: temperature,
+            top_p: 0.95,
+            max_tokens: maxTokens,
+            stream: false,
+          }),
+        });
 
-  let lastError = null;
-
-  for (const model of modelsToTry) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'user', content: promptText }],
-          temperature: temperature,
-          top_p: 0.95,
-          max_tokens: maxTokens,
-          stream: false,
-        }),
-      });
-
-      if (res.status === 429 || res.status >= 500) {
-        console.warn(`[Aletheia] Model ${model} returned ${res.status}; no further direct fallback.`);
-        lastError = new Error(`LLM API status ${res.status}`);
-        continue;
+        if (res.ok) {
+          const data = await res.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content && content.trim().length > 0) {
+            return content;
+          }
+        } else {
+          console.warn(`[Aletheia] Direct LLM API returned status ${res.status}, falling back to proxy.`);
+        }
+      } catch (err) {
+        console.warn(`[Aletheia] Error with direct model ${model}, falling back to proxy:`, err.message);
       }
-
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        console.warn(`[Aletheia] LLM API error (${res.status}): ${errBody.slice(0, 100)}`);
-        continue;
-      }
-
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (content && content.trim().length > 0) {
-        return content;
-      }
-    } catch (err) {
-      lastError = err;
-      console.warn(`[Aletheia] Error with model ${model}, trying next model...`, err.message);
     }
   }
 
-  // Fail loudly. This previously returned hardcoded "demo" claims here, and a
-  // hardcoded {verdict: "True", confidence: "High"} with a fabricated source,
-  // so an API outage produced confident fiction that was indistinguishable from
-  // a real result. For a fact-checking tool that is the worst possible failure
-  // mode: an error box is recoverable, an invented verdict is not.
-  //
-  // Provider failover now lives in the proxy (proxy/src/index.js), so a single
-  // busy endpoint no longer takes the pipeline down.
-  throw lastError || new Error('All model providers are unavailable. Try again shortly.');
+  // Fallback to hosted proxy (handles provider failover automatically)
+  const data = await callProxy('/v1/chat', {
+    messages: [{ role: 'user', content: promptText }],
+    temperature,
+    max_tokens: maxTokens,
+  });
+  return data.content;
 }
 
 // ─── Stage 1: Claim Extraction ────────────────────────────────────────────────
