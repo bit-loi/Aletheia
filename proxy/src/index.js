@@ -6,19 +6,28 @@
  * can read it out of their own profile directory, and the quota is then
  * everyone's. This Worker exists so users can install and go.
  *
+ * The mobile app has the same problem and the same answer, but it cannot prove
+ * itself with an Origin header, so it presents a shared bearer token instead.
+ *
  * Endpoints
  *   POST /v1/chat            OpenAI-shaped chat completion
  *   POST /v1/search          evidence search
+ *   POST /v1/transcribe      audio clip -> transcript (Gemini native, mobile)
+ *   POST /v1/verify-mobile   transcript -> claims -> evidence -> verdict
  *   POST /v1/gemini-live-token short-lived browser credential for live audio
  *   GET  /health             liveness
+ *
+ * Every endpoint except /health requires either an allowed Origin or a valid
+ * mobile bearer token.
  *
  * Bindings (see wrangler.jsonc)
  *   env.RL               rate limiter
  *   env.ALLOWED_ORIGINS  comma-separated chrome-extension:// origins; supports
  *                        chrome-extension://* for unpacked installs
  *   env.LLM_CHAIN        comma-separated provider ids, in preference order
+ *   env.GEMINI_TRANSCRIBE_MODEL  model for /v1/transcribe
  *   env.GEMINI_API_KEY / env.OPENROUTER_API_KEY / env.GROQ_API_KEY /
- *   env.TAVILY_API_KEY  (secrets)
+ *   env.TAVILY_API_KEY / env.MOBILE_API_TOKEN  (secrets)
  */
 
 /**
@@ -66,7 +75,23 @@ const PROVIDERS = {
 };
 
 const MAX_BODY_BYTES = 128 * 1024; // articles are text; anything larger is abuse
+// Audio is the one route that legitimately exceeds the text cap. A 15 s 16 kHz
+// mono PCM16 WAV is ~480 KB raw and ~640 KB base64; 2 MB leaves headroom for a
+// longer or higher-rate clip without inviting uploads of arbitrary files.
+const MAX_AUDIO_BODY_BYTES = 2 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 25000;
+
+/** Audio container types Gemini accepts as inline_data. */
+const TRANSCRIBE_MIME_TYPES = new Set([
+  'audio/wav',
+  'audio/x-wav',
+  'audio/mp3',
+  'audio/mpeg',
+  'audio/aiff',
+  'audio/aac',
+  'audio/ogg',
+  'audio/flac',
+]);
 
 function corsHeaders(origin) {
   return {
@@ -127,12 +152,18 @@ function isMobileAuthed(request, env) {
   return !!(match && match[1] === token);
 }
 
-/** Read a JSON body with a hard size cap. */
-async function readJson(request) {
+/**
+ * Read a JSON body with a hard size cap.
+ *
+ * The cap is per route rather than global: text routes stay tight because
+ * anything larger than an article is abuse, while /v1/transcribe has to carry
+ * base64 audio, which is inherently ~1.4 MB for a 15 s 16 kHz mono recording.
+ */
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   const declared = Number(request.headers.get('content-length') || 0);
-  if (declared > MAX_BODY_BYTES) throw new Error('payload too large');
+  if (declared > maxBytes) throw new Error('payload too large');
   const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) throw new Error('payload too large');
+  if (text.length > maxBytes) throw new Error('payload too large');
   return JSON.parse(text);
 }
 
@@ -358,6 +389,91 @@ async function handleGeminiLiveToken(env, origin) {
     const detail = err.name === 'AbortError' ? 'timeout' : 'network';
     console.log(JSON.stringify({ event: 'gemini_live_token_failed', detail }));
     return json({ error: 'Gemini Live is unavailable' }, 502, origin);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Transcribe a recorded audio clip.
+ *
+ * Mobile records a whole 15 s clip and uploads it once, rather than holding the
+ * streaming Gemini Live socket the extension uses, because a phone backgrounds
+ * the app the moment the user switches to TikTok.
+ *
+ * This deliberately calls Gemini's native generateContent rather than the
+ * OpenAI-compatible /chat/completions the rest of the chain shares: inline_data
+ * is the documented way to send audio, whereas the compatibility layer models
+ * text-only chat. That is also why this route does not participate in the
+ * provider failover chain — OpenRouter and Groq speak the OpenAI shape and have
+ * no equivalent audio surface here.
+ */
+async function handleTranscribe(request, env, origin) {
+  if (!env.GEMINI_API_KEY) {
+    return json({ error: 'transcription is not configured' }, 503, origin);
+  }
+
+  const payload = await readJson(request, MAX_AUDIO_BODY_BYTES);
+  const audio = payload.audio || payload.data;
+  const mimeType = (payload.mimeType || payload.mime_type || 'audio/wav').toLowerCase();
+
+  if (!audio || typeof audio !== 'string') {
+    return json({ error: 'audio (base64) required' }, 400, origin);
+  }
+  if (!TRANSCRIBE_MIME_TYPES.has(mimeType)) {
+    return json({ error: `unsupported audio type: ${mimeType}` }, 400, origin);
+  }
+
+  const model = env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.5-flash';
+  const prompt =
+    'Transcribe the following audio exactly as spoken. Return ONLY the raw ' +
+    'transcript text: no formatting, no timestamps, no speaker labels, no ' +
+    'commentary. If the audio is silent or unintelligible, return exactly [inaudible].';
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': env.GEMINI_API_KEY,
+          accept: 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: audio } }],
+            },
+          ],
+          generationConfig: { temperature: 0, maxOutputTokens: 4096 },
+        }),
+        signal: controller.signal,
+      },
+    );
+
+    if (!response.ok) {
+      // Same reasoning as callProvider: never forward the upstream body.
+      console.log(JSON.stringify({ event: 'transcribe_failed', status: response.status }));
+      return json({ error: 'transcription is unavailable' }, 502, origin);
+    }
+
+    const data = await response.json();
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts.map((p) => p.text || '').join('').trim()
+      : '';
+
+    // An empty or [inaudible] result is a real outcome, not an error: the caller
+    // needs to tell the user to unplug headphones rather than invent a claim.
+    return json({ transcript: text, model, inaudible: !text || text === '[inaudible]' }, 200, origin);
+  } catch (err) {
+    const detail = err.name === 'AbortError' ? 'timeout' : 'network';
+    console.log(JSON.stringify({ event: 'transcribe_failed', detail }));
+    return json({ error: 'transcription is unavailable' }, 502, origin);
   } finally {
     clearTimeout(timer);
   }
@@ -627,32 +743,29 @@ export default {
       return new Response('ok', { headers: corsHeaders('*') });
     }
 
+    // Two ways in: a browser extension's Origin, or a mobile bearer token.
+    // React Native sends no Origin at all, so an authenticated mobile caller
+    // gets '*' echoed back — safe because native HTTP stacks do not enforce
+    // CORS, and the token, not the header, is what gates the request.
+    //
+    // The fallback here must be null, not '*'. Anything truthy makes the 403
+    // below unreachable and turns the Worker into an open Gemini/Tavily relay
+    // on our keys.
     const origin = allowedOrigin(request, env);
     const mobileAuthed = isMobileAuthed(request, env);
-    const effectiveOrigin = origin || (mobileAuthed ? (request.headers.get('Origin') || '*') : '*');
+    const effectiveOrigin = origin || (mobileAuthed ? (request.headers.get('Origin') || '*') : null);
 
     if (request.method === 'OPTIONS') {
+      // A browser preflight cannot carry the bearer token, so admit any
+      // preflight that announces the mobile header. The request that follows
+      // is still gated on the token itself.
       const reqHeaders = request.headers.get('Access-Control-Request-Headers') || '';
       const isMobilePreflight = reqHeaders.toLowerCase().includes('x-aletheia-client');
-      const allowOptions = effectiveOrigin || isMobilePreflight;
+      const allowOptions = Boolean(effectiveOrigin) || isMobilePreflight;
       return new Response(null, {
         status: allowOptions ? 204 : 403,
         headers: corsHeaders(allowOptions ? (request.headers.get('Origin') || '*') : ''),
       });
-    }
-
-    if (url.pathname === '/v1/verify-mobile') {
-      if (request.method !== 'POST') {
-        return json({ error: 'method not allowed' }, 405, effectiveOrigin || '*');
-      }
-      if (env.RL && typeof env.RL.limit === 'function') {
-        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-        const { success } = await env.RL.limit({ key: ip });
-        if (!success) {
-          return json({ error: 'rate limited', retryAfter: 60 }, 429, effectiveOrigin || '*');
-        }
-      }
-      return await handleVerifyMobile(request, env, effectiveOrigin || '*');
     }
 
     if (!effectiveOrigin) {
@@ -675,9 +788,15 @@ export default {
     try {
       if (url.pathname === '/v1/chat') return await handleChat(request, env, effectiveOrigin);
       if (url.pathname === '/v1/search') return await handleSearch(request, env, effectiveOrigin);
+      if (url.pathname === '/v1/transcribe') return await handleTranscribe(request, env, effectiveOrigin);
+      if (url.pathname === '/v1/verify-mobile') return await handleVerifyMobile(request, env, effectiveOrigin);
       if (url.pathname === '/v1/gemini-live-token') return await handleGeminiLiveToken(env, effectiveOrigin);
       return json({ error: 'not found' }, 404, effectiveOrigin);
     } catch (err) {
+      // An oversized body is the caller's mistake, not ours; say which.
+      if (err.message === 'payload too large') {
+        return json({ error: 'payload too large' }, 413, effectiveOrigin);
+      }
       console.log(JSON.stringify({ event: 'unhandled', message: err.message }));
       return json({ error: 'proxy error' }, 500, effectiveOrigin);
     }
