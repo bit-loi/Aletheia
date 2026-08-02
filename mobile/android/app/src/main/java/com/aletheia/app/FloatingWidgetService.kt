@@ -17,11 +17,14 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -53,6 +56,7 @@ import androidx.core.app.NotificationCompat
 class FloatingWidgetService : Service() {
 
     companion object {
+        const val TAG = "AletheiaWidget"
         const val CHANNEL_ID = "aletheia_widget"
         const val NOTIFICATION_ID = 2
         const val ACTION_START = "com.aletheia.app.START_WIDGET"
@@ -319,6 +323,15 @@ class FloatingWidgetService : Service() {
         wv.setBackgroundColor(Color.TRANSPARENT)
         wv.isVerticalScrollBarEnabled = false
         wv.isHorizontalScrollBarEnabled = false
+        // Without this, a JS error inside the card is completely silent: the
+        // button simply does nothing and there is no trace anywhere. That is
+        // how a bridge call to a method the bridge does not expose shipped.
+        wv.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                Log.d(TAG, "overlay console: ${msg.message()} @${msg.lineNumber()}")
+                return true
+            }
+        }
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 FloatingWidgetController.onPageLoaded()

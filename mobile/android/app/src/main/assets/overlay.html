@@ -695,8 +695,10 @@
   dragHandle.addEventListener('pointercancel', endDrag);
 
   // ── Controls ─────────────────────────────────────────────────────────────
+  // The bridge method is onCollapse, matching the onDragStart/Move/End naming.
+  // Calling a name the bridge does not expose fails silently in a WebView.
   document.getElementById('al-close').addEventListener('click', function () {
-    if (native()) native().collapse();
+    if (native()) native().onCollapse();
   });
 
   // Initial empty state (extension's renderEmptyState).
