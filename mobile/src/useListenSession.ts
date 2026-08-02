@@ -13,11 +13,12 @@
 
 import { useState, useCallback, useRef } from 'react';
 import {
+  expandWidget,
   startRecording,
   stopRecording,
   isHeadphonesConnected,
   requestMicrophonePermission,
-  updateWidgetText,
+  updateWidgetStatus,
   updateWidgetVerdict,
   type RecordingState,
 } from './audioCapture';
@@ -99,6 +100,7 @@ export function useListenSession() {
       // 1. Check headphones
       const headphones = await checkHeadphones();
       if (headphones) {
+        updateWidgetStatus(lang === 'en' ? 'Aletheia • Headphones detected' : 'Aletheia • Headphone terdeteksi');
         updateState({
           phase: 'error',
           error:
@@ -112,6 +114,7 @@ export function useListenSession() {
       // 2. Request microphone permission
       const granted = await requestMicrophonePermission();
       if (!granted) {
+        updateWidgetStatus(lang === 'en' ? 'Aletheia • Mic permission required' : 'Aletheia • Izin mikrofon diperlukan');
         updateState({
           phase: 'error',
           error: lang === 'en' ? 'Microphone permission is required to listen and verify audio.' : 'Izin mikrofon diperlukan untuk mendengarkan dan memverifikasi audio.',
@@ -122,14 +125,18 @@ export function useListenSession() {
       // 3. Start recording
       recordingRef.current = true;
       updateState({ phase: 'recording', statusText: lang === 'en' ? 'Listening…' : 'Mendengarkan…' });
-      updateWidgetText(lang === 'en' ? 'Listening…' : 'Mendengarkan…');
+      updateWidgetStatus(lang === 'en' ? 'Listening…' : 'Mendengarkan…');
+      // Any session start also expands the floating widget card so the live
+      // status text is visible even if the session was started from the app
+      // button rather than the bubble.
+      expandWidget();
 
       const filePath = await new Promise<string>((resolve, reject) => {
         startRecording({
           onStateChange: (recordState: RecordingState) => {
             if (recordState === 'processing') {
               updateState({ statusText: lang === 'en' ? 'Processing audio…' : 'Memproses audio…' });
-              updateWidgetText(lang === 'en' ? 'Processing audio…' : 'Memproses audio…');
+              updateWidgetStatus(lang === 'en' ? 'Processing audio…' : 'Memproses audio…');
             }
           },
           onError: (err: string) => {
@@ -148,7 +155,7 @@ export function useListenSession() {
 
       // 4. Transcribe
       updateState({ phase: 'transcribing', statusText: lang === 'en' ? 'Transcribing audio…' : 'Transkripsi audio…' });
-      updateWidgetText(lang === 'en' ? 'Transcribing audio…' : 'Transkripsi audio…');
+      updateWidgetStatus(lang === 'en' ? 'Transcribing audio…' : 'Transkripsi audio…');
       const audioBase64 = await fileToBase64(filePath);
       const transcript = await transcribeAudio(audioBase64, 'audio/wav');
 
@@ -158,23 +165,33 @@ export function useListenSession() {
 
       // 6. Verify
       updateState({ phase: 'verifying', statusText: lang === 'en' ? 'Verifying claims…' : 'Memeriksa klaim…' });
-      updateWidgetText(lang === 'en' ? 'Verifying claims…' : 'Memeriksa klaim…');
+      updateWidgetStatus(lang === 'en' ? 'Verifying claims…' : 'Memeriksa klaim…');
       const result = await verifyTranscript(merged.combinedText, lang, (status) => {
         updateState({ statusText: status });
-        updateWidgetText(status);
+        updateWidgetStatus(status);
       });
 
-      // 7. Done!
+      // 7. Done! The verdict is pushed to the floating widget WebView as the
+      // same JSON shape the extension's card renderer consumes.
       if (result.claims.length > 0) {
         const top = result.claims[0];
         const vText = top.verdict.verdict === 'True' ? (lang === 'en' ? 'TRUE' : 'BENAR') : top.verdict.verdict === 'False' ? (lang === 'en' ? 'FALSE' : 'SALAH') : top.verdict.verdict === 'Misleading' ? (lang === 'en' ? 'MISLEADING' : 'MENYESATKAN') : (lang === 'en' ? 'UNVERIFIED' : 'BELUM DIVERIFIKASI');
-        updateWidgetText(`${lang === 'en' ? 'Claim' : 'Klaim'}: ${vText}`);
-        updateWidgetVerdict(top.verdict.verdict, top.claim, top.verdict.explanation);
+        updateWidgetStatus(`${lang === 'en' ? 'Claim' : 'Klaim'}: ${vText}`);
+        updateWidgetVerdict(
+          JSON.stringify({
+            claim: top.claim,
+            verdict: top.verdict.verdict,
+            explanation: top.verdict.explanation,
+            confidence: top.verdict.confidence,
+            key_sources: top.verdict.key_sources,
+          }),
+        );
       } else {
-        updateWidgetText(lang === 'en' ? 'Aletheia • Done' : 'Aletheia • Selesai');
+        updateWidgetStatus(lang === 'en' ? 'Aletheia • Done' : 'Aletheia • Selesai');
       }
       updateState({ phase: 'done', result, statusText: '' });
     } catch (err: any) {
+      updateWidgetStatus(lang === 'en' ? 'Aletheia • Check failed' : 'Aletheia • Gagal memeriksa');
       updateState({
         phase: 'error',
         error: err.message || 'An unexpected error occurred.',

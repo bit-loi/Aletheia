@@ -45,11 +45,10 @@ async function callProxy(path: string, body: Record<string, unknown>): Promise<a
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Origin': 'chrome-extension://abcdefghijklmnopabcdefghijklmnop',
   };
 
+  // Add the Authorization header if a mobile token is available
   if (CONFIG.MOBILE_API_TOKEN) {
-    headers['X-Aletheia-Client'] = CONFIG.MOBILE_API_TOKEN;
     headers['Authorization'] = `Bearer ${CONFIG.MOBILE_API_TOKEN}`;
   }
 

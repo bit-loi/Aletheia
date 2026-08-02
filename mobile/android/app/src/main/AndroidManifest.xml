@@ -18,6 +18,13 @@
     <!-- Overlay window: required for Pop-Up Shazam style floating button over other apps -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Floating widget foreground service (specialUse type; Android 14+).
+         The type itself needs no dedicated permission — it exists for apps
+         whose foreground service purpose has no standard category (here:
+         keeping a draggable fact-check bubble over other apps). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
@@ -49,5 +56,17 @@
         android:name=".AudioRecorderService"
         android:foregroundServiceType="microphone"
         android:exported="false" />
+
+      <!-- Floating widget service: bubble + WebView verdict card over any
+           app. Declared specialUse so Android 14+ allows the persistent
+           foreground service; the subtype is what Play review asks for. -->
+      <service
+        android:name=".FloatingWidgetService"
+        android:foregroundServiceType="specialUse"
+        android:exported="false">
+        <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="floating fact-check widget shown over other apps" />
+      </service>
     </application>
 </manifest>

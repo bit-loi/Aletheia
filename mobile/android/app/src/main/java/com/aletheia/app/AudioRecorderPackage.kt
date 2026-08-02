@@ -6,11 +6,16 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.uimanager.ViewManager
 
 /**
- * Registers the AudioRecorderModule native module with React Native.
+ * Registers the native modules with React Native:
+ *   - AudioRecorderModule: microphone recording (foreground service)
+ *   - OverlayPermissionModule: floating widget + overlay permission flow
  */
 class AudioRecorderPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(AudioRecorderModule(reactContext))
+        return listOf(
+            AudioRecorderModule(reactContext),
+            OverlayPermissionModule(reactContext)
+        )
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

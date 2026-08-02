@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Aletheia</title>
+<style>
+  /* ────────────────────────────────────────────────────────────────────────
+     PORTED FROM the browser extension:
+       - shared/tokens.js   (design tokens, BASE + DARK + LIGHT + fallbacks)
+       - content/styles.js  (SHADOW_STYLES component sheet)
+       - content/overlay.js (panel structure, claim card, status, drag)
+     Adaptations for the Android floating widget WebView:
+       1. Shadow DOM removed  → plain document, styles scoped by tag names.
+       2. `:host` token selectors → `:root` / `html.light-theme`.
+       3. chrome.storage theme removed → dark by default; setTheme() exposed
+          for a future setting. Same visual design, no persistence.
+       4. Dragging now reports deltas to window.AletheiaNative (a Kotlin
+          @JavascriptInterface) which moves the actual overlay window,
+          because a WebView cannot reposition itself off-screen.
+       5. addClaimCard() → renderVerdict(data): same card DOM + CSS.
+       6. Minimize/close collapse the card back to the native bubble.
+     All colours, sizes, radii, durations and shadows come from the token set
+     below — nothing is hardcoded outside it.
+     ──────────────────────────────────────────────────────────────────────── */
+
+  :root {
+    /* Tier 1: primitives, identical in every theme */
+    --al-space-1: 4px;
+    --al-space-2: 8px;
+    --al-space-3: 12px;
+    --al-space-4: 16px;
+    --al-space-5: 24px;
+    --al-space-6: 32px;
+
+    --al-text-2xs: 10px;
+    --al-text-xs:  11px;
+    --al-text-sm:  12px;
+    --al-text-md:  13px;
+    --al-text-lg:  15px;
+    --al-text-xl:  18px;
+
+    --al-radius-xs: 4px;
+    --al-radius-sm: 8px;
+    --al-radius-md: 12px;
+    --al-radius-lg: 16px;
+
+    --al-hairline: 1px;
+    --al-focus-width: 2px;
+
+    --al-dur-1: 90ms;
+    --al-dur-2: 160ms;
+    --al-dur-3: 240ms;
+    --al-dur-4: 320ms;
+    --al-stagger: 40ms;
+    --al-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+    --al-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+    --al-blur: 20px;
+    --al-sat: 180%;
+
+    --al-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --al-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+    /* Tier 2: semantic, dark theme */
+    --al-surface:        #0B0B0D;
+    --al-surface-raised: #141418;
+    --al-ink:            #FAFAFA;
+    --al-ink-muted:      #A1A1AA;
+
+    --al-border-hairline: rgba(255, 255, 255, 0.16);
+    --al-border-strong:   rgba(255, 255, 255, 0.92);
+
+    --al-glass-tint:      rgba(10, 10, 12, 0.72);
+    --al-glass-highlight: rgba(255, 255, 255, 0.22);
+    --al-glass-shade:     rgba(0, 0, 0, 0.35);
+
+    --al-focus: #7DB8FF;
+
+    --al-elev-1: 0 4px 16px rgba(0, 0, 0, 0.38);
+    --al-elev-2: 0 16px 48px rgba(0, 0, 0, 0.52);
+
+    --al-v-true-accent:        #10B981;
+    --al-v-true-ink:           #34D399;
+    --al-v-false-accent:       #EF4444;
+    --al-v-false-ink:          #F87171;
+    --al-v-misleading-accent:  #F59E0B;
+    --al-v-misleading-ink:     #FBBF24;
+    --al-v-unverified-accent:  #71717A;
+    --al-v-unverified-ink:     #A1A1AA;
+  }
+
+  html.light-theme {
+    --al-surface:        #FFFFFF;
+    --al-surface-raised: #F4F4F5;
+    --al-ink:            #18181B;
+    --al-ink-muted:      #52525B;
+
+    --al-border-hairline: rgba(0, 0, 0, 0.14);
+    --al-border-strong:   rgba(0, 0, 0, 0.88);
+
+    --al-glass-tint:      rgba(255, 255, 255, 0.68);
+    --al-glass-highlight: rgba(255, 255, 255, 0.90);
+    --al-glass-shade:     rgba(0, 0, 0, 0.12);
+
+    --al-focus: #0B63CE;
+
+    --al-elev-1: 0 4px 16px rgba(0, 0, 0, 0.12);
+    --al-elev-2: 0 16px 48px rgba(0, 0, 0, 0.18);
+
+    --al-v-true-accent:        #059669;
+    --al-v-true-ink:           #047857;
+    --al-v-false-accent:       #DC2626;
+    --al-v-false-ink:          #B91C1C;
+    --al-v-misleading-accent:  #D97706;
+    --al-v-misleading-ink:     #B45309;
+    --al-v-unverified-accent:  #71717A;
+    --al-v-unverified-ink:     #52525B;
+  }
+
+  /* Glass fallbacks — same as shared/tokens.js */
+  @supports not (backdrop-filter: blur(2px)) {
+    :root { --al-blur: 0px; --al-glass-tint: var(--al-surface); }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    :root { --al-blur: 0px; --al-glass-tint: var(--al-surface); }
+  }
+  @media (prefers-contrast: more) {
+    :root { --al-blur: 0px; --al-glass-tint: var(--al-surface); --al-border-hairline: var(--al-border-strong); --al-focus-width: 3px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :root { --al-dur-1: 1ms; --al-dur-2: 1ms; --al-dur-3: 1ms; --al-dur-4: 1ms; --al-stagger: 0ms; }
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: var(--al-font-ui);
+    font-size: var(--al-text-md);
+    line-height: 1.5;
+    color: var(--al-ink);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
+  /* ── Panel: fills the WebView, glass chrome on top, opaque body below ──── */
+  .al-panel {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--al-font-ui);
+    font-size: var(--al-text-md);
+    line-height: 1.5;
+    color: var(--al-ink);
+    border-radius: var(--al-radius-lg);
+    filter: drop-shadow(var(--al-elev-2));
+  }
+
+  /* ── Glass chrome ─────────────────────────────────────────────────────── */
+  .al-chrome,
+  .al-ctrl {
+    position: relative;
+    isolation: isolate;
+    background: var(--al-glass-tint);
+    backdrop-filter: blur(var(--al-blur)) saturate(var(--al-sat));
+    -webkit-backdrop-filter: blur(var(--al-blur)) saturate(var(--al-sat));
+    border: var(--al-hairline) solid var(--al-border-hairline);
+    box-shadow: inset 0 1px 0 var(--al-glass-highlight),
+                inset 0 -1px 0 var(--al-glass-shade);
+  }
+
+  .al-chrome::before,
+  .al-ctrl::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 42%);
+  }
+
+  .al-chrome {
+    display: flex;
+    align-items: center;
+    gap: var(--al-space-2);
+    padding: var(--al-space-2);
+    border-radius: var(--al-radius-lg) var(--al-radius-lg) 0 0;
+    border-bottom: none;
+    cursor: grab;
+  }
+
+  /* ── Drag grip ────────────────────────────────────────────────────────── */
+  .al-grip {
+    flex: none;
+    width: 18px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    background: none;
+    border: none;
+    border-radius: var(--al-radius-xs);
+    cursor: grab;
+    padding: 0;
+  }
+  .al-grip__dots {
+    width: 3px;
+    height: 15px;
+    border-radius: 2px;
+    background-image: radial-gradient(currentColor 44%, transparent 46%);
+    background-size: 3px 5px;
+    color: var(--al-ink-muted);
+    opacity: 0.75;
+  }
+
+  /* ── Identity + status ────────────────────────────────────────────────── */
+  .al-ident {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .al-brand {
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-xs);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--al-ink);
+  }
+  .al-status {
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-2xs);
+    color: var(--al-ink-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: opacity var(--al-dur-2) var(--al-ease-standard);
+  }
+  .al-status.is-swapping { opacity: 0; }
+  .al-status.is-active { color: var(--al-ink); }
+
+  /* ── Controls ─────────────────────────────────────────────────────────── */
+  .al-actions { display: flex; gap: var(--al-space-1); flex: none; }
+  .al-ctrl {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--al-radius-xs);
+    color: var(--al-ink);
+    font-size: var(--al-text-md);
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    transition: transform var(--al-dur-1) var(--al-ease-standard),
+                background-color var(--al-dur-1) var(--al-ease-standard);
+  }
+  .al-ctrl:hover { background: var(--al-glass-highlight); }
+  .al-ctrl:active { transform: translate(1px, 1px); }
+
+  /* ── Progress (kept for parity; only shown when explicitly enabled) ───── */
+  .al-progress {
+    height: 2px;
+    background: var(--al-surface-raised);
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity var(--al-dur-2) var(--al-ease-standard);
+  }
+  .al-progress.is-visible { opacity: 1; }
+  .al-progress__fill {
+    height: 100%;
+    width: 0%;
+    background: var(--al-ink);
+    transition: width var(--al-dur-4) var(--al-ease-standard);
+  }
+  .al-progress.is-indeterminate .al-progress__fill {
+    width: 36%;
+    animation: al-sweep 1400ms var(--al-ease-standard) infinite;
+  }
+  @keyframes al-sweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(380%); }
+  }
+
+  /* ── Body: the opaque plane ───────────────────────────────────────────── */
+  .al-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--al-surface);
+    border: var(--al-hairline) solid var(--al-border-hairline);
+    border-top: none;
+    border-radius: 0 0 var(--al-radius-lg) var(--al-radius-lg);
+    scrollbar-width: thin;
+    scrollbar-color: var(--al-ink-muted) transparent;
+  }
+  .al-body::-webkit-scrollbar { width: 8px; }
+  .al-body::-webkit-scrollbar-thumb {
+    background: var(--al-border-hairline);
+    border-radius: var(--al-radius-sm);
+  }
+
+  .al-feed {
+    display: flex;
+    flex-direction: column;
+    gap: var(--al-space-2);
+    padding: var(--al-space-3);
+  }
+
+  /* ── Placeholder / empty state ────────────────────────────────────────── */
+  .al-placeholder { padding: var(--al-space-5) var(--al-space-3); text-align: center; }
+  .al-placeholder__title {
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--al-ink);
+    margin-bottom: var(--al-space-2);
+  }
+  .al-placeholder__body {
+    font-size: var(--al-text-sm);
+    color: var(--al-ink-muted);
+    line-height: 1.55;
+    max-width: 32ch;
+    margin: 0 auto;
+  }
+
+  /* ── Claim card ───────────────────────────────────────────────────────── */
+  .al-card {
+    display: flex;
+    gap: var(--al-space-3);
+    padding: var(--al-space-3);
+    background: var(--al-surface-raised);
+    border: var(--al-hairline) solid var(--al-border-hairline);
+    border-radius: var(--al-radius-md);
+    animation: al-card-in var(--al-dur-4) var(--al-ease-out) backwards;
+    animation-delay: calc(var(--al-card-index, 1) * var(--al-stagger));
+  }
+  @keyframes al-card-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .al-card__main { flex: 1; min-width: 0; }
+
+  .al-card__rail {
+    flex: none;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--v-accent);
+    transform: scaleY(0);
+    transform-origin: top;
+    animation: al-rail-in var(--al-dur-4) var(--al-ease-out) forwards;
+    animation-delay: calc(var(--al-card-index, 1) * var(--al-stagger) + 80ms);
+  }
+  @keyframes al-rail-in { to { transform: scaleY(1); } }
+
+  .al-card[data-verdict="true"]       { --v-accent: var(--al-v-true-accent);       --v-ink: var(--al-v-true-ink); }
+  .al-card[data-verdict="false"]      { --v-accent: var(--al-v-false-accent);      --v-ink: var(--al-v-false-ink); }
+  .al-card[data-verdict="misleading"] { --v-accent: var(--al-v-misleading-accent); --v-ink: var(--al-v-misleading-ink); }
+  .al-card[data-verdict="unverified"] { --v-accent: var(--al-v-unverified-accent); --v-ink: var(--al-v-unverified-ink); }
+
+  .al-card[data-verdict="false"] .al-card__rail {
+    background: linear-gradient(var(--v-accent) 0 44%, transparent 44% 56%, var(--v-accent) 56% 100%);
+  }
+  .al-card[data-verdict="misleading"] .al-card__rail {
+    background: repeating-linear-gradient(45deg, var(--v-accent) 0 3px, transparent 3px 6px);
+  }
+  .al-card[data-verdict="unverified"] .al-card__rail {
+    background: repeating-linear-gradient(180deg, var(--v-accent) 0 3px, transparent 3px 7px);
+  }
+
+  .al-card__head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--al-space-2);
+    margin-bottom: var(--al-space-2);
+  }
+
+  .al-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--al-space-1);
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--v-ink);
+  }
+  .al-badge__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--v-accent);
+  }
+
+  /* Confidence stays monochrome so it does not compete with the verdict. */
+  .al-meter { display: inline-flex; align-items: center; gap: 3px; }
+  .al-meter__seg {
+    width: 4px;
+    height: 8px;
+    border-radius: 1px;
+    background: var(--al-border-hairline);
+  }
+  .al-meter__seg.is-on { background: var(--al-ink-muted); }
+  .al-meter__label {
+    margin-left: var(--al-space-1);
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-2xs);
+    text-transform: lowercase;
+    color: var(--al-ink-muted);
+  }
+
+  .al-chip {
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--al-ink-muted);
+    border: var(--al-hairline) solid var(--al-border-hairline);
+    border-radius: var(--al-radius-xs);
+    padding: 1px var(--al-space-1);
+  }
+
+  .al-claim {
+    margin: 0 0 var(--al-space-2);
+    font-size: var(--al-text-md);
+    font-weight: 600;
+    line-height: 1.45;
+    color: var(--al-ink);
+  }
+  .al-explain {
+    margin: 0 0 var(--al-space-2);
+    font-size: var(--al-text-sm);
+    line-height: 1.55;
+    color: var(--al-ink-muted);
+  }
+
+  /* ── Sources disclosure ───────────────────────────────────────────────── */
+  .al-sources__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--al-space-1);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--al-ink-muted);
+  }
+  .al-sources__toggle:hover { color: var(--al-ink); }
+  .al-sources__arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid currentColor;
+    border-top: 3px solid transparent;
+    border-bottom: 3px solid transparent;
+    transition: transform var(--al-dur-2) var(--al-ease-standard);
+  }
+  .al-sources__toggle[aria-expanded="true"] .al-sources__arrow { transform: rotate(90deg); }
+
+  .al-sources__wrap {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--al-dur-2) var(--al-ease-standard);
+  }
+  .al-sources__wrap.is-open { grid-template-rows: 1fr; }
+  .al-sources__list { overflow: hidden; margin: 0; padding: 0; list-style: none; }
+  .al-sources__wrap.is-open .al-sources__list { padding-top: var(--al-space-2); }
+  .al-sources__list li { margin-bottom: var(--al-space-1); }
+  .al-sources__list a {
+    font-size: var(--al-text-xs);
+    color: var(--al-ink-muted);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .al-sources__list a:hover { color: var(--al-ink); }
+  .al-sources__empty {
+    font-size: var(--al-text-xs);
+    color: var(--al-ink-muted);
+    font-style: italic;
+  }
+
+  /* ── Error ────────────────────────────────────────────────────────────── */
+  .al-error {
+    padding: var(--al-space-3);
+    border: var(--al-hairline) solid var(--al-v-false-accent);
+    border-radius: var(--al-radius-md);
+    background: var(--al-surface-raised);
+  }
+  .al-error__title {
+    font-family: var(--al-font-mono);
+    font-size: var(--al-text-2xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--al-v-false-ink);
+    margin-bottom: var(--al-space-2);
+  }
+  .al-error__body {
+    font-size: var(--al-text-sm);
+    line-height: 1.55;
+    color: var(--al-ink-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .al-card { animation: none; }
+    .al-card__rail { animation: none; transform: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="al-panel" id="al-panel" role="dialog" aria-label="Aletheia fact check">
+    <div class="al-chrome" id="al-chrome">
+      <div class="al-grip" id="al-grip" aria-hidden="true"><span class="al-grip__dots"></span></div>
+      <div class="al-ident">
+        <span class="al-brand">Aletheia</span>
+        <span class="al-status" id="al-status" role="status" aria-live="polite">Ready</span>
+      </div>
+      <div class="al-actions">
+        <button class="al-ctrl" id="al-close" type="button" aria-label="Collapse widget">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+    </div>
+    <div class="al-progress" id="al-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Fact check progress">
+      <div class="al-progress__fill" id="al-progress-fill"></div>
+    </div>
+    <div class="al-body">
+      <div class="al-feed" id="al-claims" role="log"></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var VERDICT_META = {
+    True:       { label: 'True',       key: 'true' },
+    False:      { label: 'False',      key: 'false' },
+    Misleading: { label: 'Misleading', key: 'misleading' },
+    Unverified: { label: 'Unverified', key: 'unverified' },
+  };
+
+  var statusEl = document.getElementById('al-status');
+  var claimsFeed = document.getElementById('al-claims');
+  var panel = document.getElementById('al-panel');
+
+  // ── Status ───────────────────────────────────────────────────────────────
+  function updateStatus(text) {
+    if (!statusEl) return;
+    if (statusEl.textContent === text) return;
+    statusEl.classList.add('is-swapping');
+    statusEl.textContent = String(text == null ? '' : text);
+    statusEl.classList.toggle('is-active', !/^(ready|idle)$/i.test(text));
+    requestAnimationFrame(function () { statusEl.classList.remove('is-swapping'); });
+  }
+
+  // ── HTML escaping (same defence as the extension's _esc) ────────────────
+  function esc(str) {
+    var div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+  }
+
+  // Three-segment monochrome confidence meter (port of _meterHtml).
+  function meterHtml(confidence) {
+    var filled = { high: 3, medium: 2, low: 1 }[String(confidence).toLowerCase()] || 0;
+    var out = '';
+    for (var i = 0; i < 3; i++) {
+      out += '<span class="al-meter__seg' + (i < filled ? ' is-on' : '') + '" aria-hidden="true"></span>';
+    }
+    return out;
+  }
+
+  var cardCounter = 0;
+
+  // Port of the extension's Overlay.addClaimCard: identical DOM + CSS class
+  // names, driven from Kotlin via renderVerdict(<json>).
+  function renderVerdict(data) {
+    if (!data || typeof data !== 'object') return;
+    cardCounter++;
+
+    var meta = VERDICT_META[data.verdict] || VERDICT_META.Unverified;
+    var sources = Array.isArray(data.key_sources) ? data.key_sources : [];
+    var sourcesId = 'al-sources-' + cardCounter;
+
+    var placeholder = claimsFeed.querySelector('.al-placeholder');
+    if (placeholder) placeholder.remove();
+
+    var card = document.createElement('article');
+    card.className = 'al-card';
+    card.dataset.verdict = meta.key;
+    card.style.setProperty('--al-card-index', String(cardCounter));
+
+    var sourceItems;
+    if (sources.length) {
+      sourceItems = sources.map(function (url) {
+        var label;
+        try { label = new URL(url).hostname.replace(/^www\./, ''); }
+        catch (e) { label = String(url).slice(0, 40); }
+        // No target="_blank": a plain WebView cannot open new windows. The
+        // Kotlin side intercepts this navigation (shouldOverrideUrlLoading)
+        // and opens the URL in the system browser.
+        return '<li><a href="' + esc(url) + '">' + esc(label) + '</a></li>';
+      }).join('');
+    } else {
+      sourceItems = '<li class="al-sources__empty">No sources retrieved</li>';
+    }
+
+    card.innerHTML =
+      '<span class="al-card__rail" aria-hidden="true"></span>' +
+      '<div class="al-card__main">' +
+        '<div class="al-card__head">' +
+          '<span class="al-badge"><span class="al-badge__dot" aria-hidden="true"></span>' + esc(meta.label) + '</span>' +
+          (data.confidence ? '<span class="al-meter">' + meterHtml(data.confidence) + '<span class="al-meter__label">' + esc(data.confidence) + '</span></span>' : '') +
+          (data.fromCache ? '<span class="al-chip">cached</span>' : '') +
+        '</div>' +
+        '<p class="al-claim">' + esc(data.claim) + '</p>' +
+        '<p class="al-explain">' + esc(data.explanation) + '</p>' +
+        '<button class="al-sources__toggle" type="button" aria-expanded="false" aria-controls="' + sourcesId + '">' +
+          '<span class="al-sources__arrow" aria-hidden="true"></span>Sources (' + sources.length + ')' +
+        '</button>' +
+        '<div class="al-sources__wrap" id="' + sourcesId + '"><ul class="al-sources__list">' + sourceItems + '</ul></div>' +
+      '</div>';
+
+    var toggle = card.querySelector('.al-sources__toggle');
+    var wrap = card.querySelector('.al-sources__wrap');
+    toggle.addEventListener('click', function () {
+      var open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!open));
+      wrap.classList.toggle('is-open', !open);
+    });
+
+    claimsFeed.appendChild(card);
+    updateStatus(meta.label + (data.confidence ? ' · ' + data.confidence + ' confidence' : ''));
+  }
+
+  // ── Drag: report deltas to the Android overlay window ───────────────────
+  // Port of the extension's _makeDraggable (pointer events, movement
+  // threshold) minus in-page positioning — window.AletheiaNative is a Kotlin
+  // @JavascriptInterface that moves the actual TYPE_APPLICATION_OVERLAY
+  // window, so the card can be dragged anywhere on screen.
+  var DRAG_THRESHOLD = 4;
+  var dragHandle = document.getElementById('al-chrome');
+  var dragging = false;
+  var moved = false;
+  var startX = 0, startY = 0;
+
+  function native() {
+    return (typeof window.AletheiaNative !== 'undefined') ? window.AletheiaNative : null;
+  }
+
+  dragHandle.addEventListener('pointerdown', function (e) {
+    var target = e.target;
+    if (target && target.closest && target.closest('.al-ctrl')) return;
+    dragging = true;
+    moved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    try { dragHandle.setPointerCapture(e.pointerId); } catch (_) {}
+    if (native()) native().onDragStart(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+
+  dragHandle.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    var dx = e.clientX - startX;
+    var dy = e.clientY - startY;
+    if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    moved = true;
+    if (native()) native().onDragMove(dx, dy);
+  });
+
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    try { dragHandle.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (native()) native().onDragEnd();
+  }
+  dragHandle.addEventListener('pointerup', endDrag);
+  dragHandle.addEventListener('pointercancel', endDrag);
+
+  // ── Controls ─────────────────────────────────────────────────────────────
+  document.getElementById('al-close').addEventListener('click', function () {
+    if (native()) native().collapse();
+  });
+
+  // Initial empty state (extension's renderEmptyState).
+  claimsFeed.innerHTML =
+    '<div class="al-placeholder">' +
+      '<div class="al-placeholder__title">Nothing checked yet</div>' +
+      '<div class="al-placeholder__body">Tap the bubble to start a listen session, then verify claims against trusted sources.</div>' +
+    '</div>';
+
+  // Exposed to Kotlin via evaluateJavascript:
+  window.updateStatus = updateStatus;
+  window.renderVerdict = renderVerdict;
+  // Optional future use: window.setTheme('light' | 'dark')
+  window.setTheme = function (theme) {
+    document.documentElement.classList.toggle('light-theme', theme === 'light');
+  };
+})();
+</script>
+</body>
+</html>

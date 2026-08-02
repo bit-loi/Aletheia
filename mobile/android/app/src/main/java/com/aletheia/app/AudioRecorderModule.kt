@@ -2,7 +2,6 @@ package com.aletheia.app
 
 import android.Manifest
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -22,6 +21,9 @@ import java.io.File
  *   - startRecording(options): starts the foreground service + recording
  *   - stopRecording(): stops recording, returns file path
  *   - isHeadphonesConnected(): checks wired/Bluetooth audio output
+ *
+ * Overlay/permission responsibilities (SYSTEM_ALERT_WINDOW flow, floating
+ * widget start/stop, vendor auto-start) live in OverlayPermissionModule.
  */
 class AudioRecorderModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -170,103 +172,6 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
         } else {
             @Suppress("DEPRECATION")
             promise.resolve(audioManager.isWiredHeadsetOn || audioManager.isBluetoothA2dpOn)
-        }
-    }
-
-    @ReactMethod
-    fun requestOverlayPermission(promise: Promise) {
-        val context = reactApplicationContext
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (!android.provider.Settings.canDrawOverlays(context)) {
-                val intent = Intent(
-                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:" + context.packageName)
-                ).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                promise.resolve(false)
-                return
-            }
-        }
-        promise.resolve(true)
-    }
-
-    @ReactMethod
-    fun checkOverlayPermission(promise: Promise) {
-        val context = reactApplicationContext
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val granted = android.provider.Settings.canDrawOverlays(context)
-            promise.resolve(granted)
-        } else {
-            promise.resolve(true)
-        }
-    }
-
-    @ReactMethod
-    fun updateWidgetText(text: String) {
-        FloatingWidgetController.updateText(text)
-    }
-
-    @ReactMethod
-    fun updateWidgetVerdict(verdict: String, claim: String, explanation: String) {
-        FloatingWidgetController.updateVerdict(verdict, claim, explanation)
-    }
-
-    @ReactMethod
-    fun closeWidget() {
-        FloatingWidgetController.closeWidget()
-    }
-
-    @ReactMethod
-    fun openVendorAutoStartSettings() {
-        val context = reactApplicationContext
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val intent = Intent()
-
-        try {
-            when {
-                manufacturer.contains("xiaomi") -> {
-                    intent.component = ComponentName(
-                        "com.miui.securitycenter",
-                        "com.miui.permcenter.autostart.AutoStartManagementActivity"
-                    )
-                }
-                manufacturer.contains("oppo") -> {
-                    intent.component = ComponentName(
-                        "com.coloros.safecenter",
-                        "com.coloros.safecenter.permission.startup.StartupAppListActivity"
-                    )
-                }
-                manufacturer.contains("vivo") -> {
-                    intent.component = ComponentName(
-                        "com.vivo.permissionmanager",
-                        "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
-                    )
-                }
-                else -> {
-                    requestIgnoreBatteryOptimization()
-                    return
-                }
-            }
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            requestIgnoreBatteryOptimization()
-        }
-    }
-
-    @ReactMethod
-    fun requestIgnoreBatteryOptimization() {
-        val context = reactApplicationContext
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = android.net.Uri.parse("package:" + context.packageName)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                context.startActivity(intent)
-            } catch (_: Exception) {}
         }
     }
 

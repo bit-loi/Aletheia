@@ -16,48 +16,21 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
-import android.provider.Settings
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
-import android.graphics.Typeface
-import android.os.Handler
-import android.os.Looper
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 
-object FloatingWidgetController {
-    private var serviceRef: AudioRecorderService? = null
-
-    fun attachService(service: AudioRecorderService) {
-        serviceRef = service
-    }
-
-    fun detachService() {
-        serviceRef = null
-    }
-
-    fun updateText(text: String) {
-        serviceRef?.updateWidgetStatus(text)
-    }
-
-    fun updateVerdict(verdict: String, claim: String, explanation: String) {
-        serviceRef?.showVerdictCard(verdict, claim, explanation)
-    }
-
-    fun closeWidget() {
-        serviceRef?.removeFloatingWidget()
-    }
-}
-
+/**
+ * AudioRecorderService — the foreground service that records microphone audio.
+ *
+ * Unchanged responsibility: record N seconds of speaker audio to a WAV file,
+ * hold a persistent notification, and broadcast amplitude / completion events.
+ *
+ * The floating widget display that previously lived here moved out: the
+ * bubble + verdict card now live in FloatingWidgetService (WebView-based,
+ * porting the extension UI). This service only records — it no longer draws
+ * anything over other apps.
+ */
 class AudioRecorderService : Service() {
 
     companion object {
@@ -153,276 +126,6 @@ class AudioRecorderService : Service() {
         return builder.build()
     }
 
-    private var windowManager: WindowManager? = null
-    private var floatingContainer: FrameLayout? = null
-    private var compactPillView: LinearLayout? = null
-    private var verdictCardView: LinearLayout? = null
-    private var statusTextView: TextView? = null
-    private var verdictBadgeTextView: TextView? = null
-    private var verdictClaimTextView: TextView? = null
-    private var verdictExplanationTextView: TextView? = null
-
-    fun updateWidgetStatus(text: String) {
-        Handler(Looper.getMainLooper()).post {
-            statusTextView?.text = text
-        }
-    }
-
-    fun showVerdictCard(verdict: String, claim: String, explanation: String) {
-        Handler(Looper.getMainLooper()).post {
-            statusTextView?.text = "Klaim: $verdict"
-
-            val badgeText = when (verdict) {
-                "True" -> "BENAR"
-                "False" -> "SALAH"
-                "Misleading" -> "MENYESATKAN"
-                else -> "BELUM DIVERIFIKASI"
-            }
-            val badgeBgColor = when (verdict) {
-                "True" -> "#059669"
-                "False" -> "#DC2626"
-                "Misleading" -> "#D97706"
-                else -> "#71717A"
-            }
-
-            verdictBadgeTextView?.text = badgeText
-            (verdictBadgeTextView?.background as? GradientDrawable)?.setColor(Color.parseColor(badgeBgColor))
-
-            verdictClaimTextView?.text = "Klaim: \"$claim\""
-            verdictExplanationTextView?.text = explanation
-
-            compactPillView?.visibility = View.GONE
-            verdictCardView?.visibility = View.VISIBLE
-        }
-    }
-
-    fun removeFloatingWidget() {
-        FloatingWidgetController.detachService()
-        floatingContainer?.let { view ->
-            try {
-                windowManager?.removeView(view)
-            } catch (_: Exception) {}
-            floatingContainer = null
-        }
-    }
-
-    private fun showFloatingWidget() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            return
-        }
-
-        try {
-            FloatingWidgetController.attachService(this)
-            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
-            val wmParams = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                else
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = 30
-                y = 220
-            }
-
-            val container = FrameLayout(this)
-
-            // 1. Compact Pill View
-            val pill = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(32, 20, 32, 20)
-
-                val background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#121216"))
-                    cornerRadius = 48f
-                    setStroke(2, Color.parseColor("#2A2A32"))
-                }
-                setBackground(background)
-            }
-
-            val dotView = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(24, 24).apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    rightMargin = 16
-                }
-                val dotBg = GradientDrawable().apply {
-                    setColor(Color.parseColor("#FF3B30"))
-                    shape = GradientDrawable.OVAL
-                }
-                setBackground(dotBg)
-            }
-
-            val statusTv = TextView(this).apply {
-                text = "Aletheia • Mendengarkan…"
-                setTextColor(Color.WHITE)
-                textSize = 13f
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            statusTextView = statusTv
-
-            val closePillBtn = TextView(this).apply {
-                text = " ✕ "
-                setTextColor(Color.parseColor("#9CA3AF"))
-                textSize = 14f
-                setPadding(16, 0, 0, 0)
-                gravity = Gravity.CENTER_VERTICAL
-                setOnClickListener {
-                    removeFloatingWidget()
-                }
-            }
-
-            pill.addView(dotView)
-            pill.addView(statusTv)
-            pill.addView(closePillBtn)
-
-            // 2. Expanded Verdict Card View (Extension UI style)
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(32, 28, 32, 28)
-                visibility = View.GONE
-
-                val cardBg = GradientDrawable().apply {
-                    setColor(Color.parseColor("#121216"))
-                    cornerRadius = 32f
-                    setStroke(3, Color.parseColor("#2A2A32"))
-                }
-                setBackground(cardBg)
-                layoutParams = LinearLayout.LayoutParams(650, LinearLayout.LayoutParams.WRAP_CONTENT)
-            }
-
-            // Header row: Brand + Close
-            val headerRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            val brandTv = TextView(this).apply {
-                text = "Aletheia Fact Check"
-                setTextColor(Color.parseColor("#9CA3AF"))
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val closeCardBtn = TextView(this).apply {
-                text = "✕"
-                setTextColor(Color.WHITE)
-                textSize = 16f
-                setPadding(16, 8, 8, 8)
-                setOnClickListener {
-                    removeFloatingWidget()
-                }
-            }
-            headerRow.addView(brandTv)
-            headerRow.addView(closeCardBtn)
-
-            // Verdict Badge
-            val badgeTv = TextView(this).apply {
-                text = "BELUM DIVERIFIKASI"
-                setTextColor(Color.WHITE)
-                textSize = 11f
-                typeface = Typeface.DEFAULT_BOLD
-                setPadding(20, 8, 20, 8)
-                val badgeBg = GradientDrawable().apply {
-                    setColor(Color.parseColor("#71717A"))
-                    cornerRadius = 16f
-                }
-                setBackground(badgeBg)
-                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                lp.topMargin = 16
-                lp.bottomMargin = 16
-                layoutParams = lp
-            }
-            verdictBadgeTextView = badgeTv
-
-            // Claim Text
-            val claimTv = TextView(this).apply {
-                text = ""
-                setTextColor(Color.WHITE)
-                textSize = 13f
-                typeface = Typeface.DEFAULT_BOLD
-                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                lp.bottomMargin = 12
-                layoutParams = lp
-            }
-            verdictClaimTextView = claimTv
-
-            // Explanation Text
-            val explanationTv = TextView(this).apply {
-                text = ""
-                setTextColor(Color.parseColor("#D1D5DB"))
-                textSize = 12f
-                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                layoutParams = lp
-            }
-            verdictExplanationTextView = explanationTv
-
-            card.addView(headerRow)
-            card.addView(badgeTv)
-            card.addView(claimTv)
-            card.addView(explanationTv)
-
-            container.addView(pill)
-            container.addView(card)
-
-            compactPillView = pill
-            verdictCardView = card
-            floatingContainer = container
-
-            // Touch and Drag listener on root container
-            var initialX = 0
-            var initialY = 0
-            var initialTouchX = 0f
-            var initialTouchY = 0f
-            var isClick = true
-
-            container.setOnTouchListener { _, event ->
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = wmParams.x
-                        initialY = wmParams.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        isClick = true
-                        true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = (event.rawX - initialTouchX).toInt()
-                        val dy = (event.rawY - initialTouchY).toInt()
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                            isClick = false
-                        }
-                        wmParams.x = initialX - dx
-                        wmParams.y = initialY + dy
-                        windowManager?.updateViewLayout(container, wmParams)
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        if (isClick) {
-                            if (verdictCardView?.visibility == View.VISIBLE) {
-                                verdictCardView?.visibility = View.GONE
-                                compactPillView?.visibility = View.VISIBLE
-                            } else if (verdictClaimTextView?.text?.isNotEmpty() == true) {
-                                compactPillView?.visibility = View.GONE
-                                verdictCardView?.visibility = View.VISIBLE
-                            }
-                        }
-                        true
-                    }
-                    else -> false
-                }
-            }
-
-            windowManager?.addView(floatingContainer, wmParams)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
     private fun startRecording(path: String, maxDurationMs: Long) {
         if (isRecording) return
 
@@ -436,7 +139,6 @@ class AudioRecorderService : Service() {
 
         // Start as foreground service FIRST
         startForeground(NOTIFICATION_ID, buildNotification())
-        showFloatingWidget()
 
         val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         audioRecord = AudioRecord(
@@ -448,7 +150,6 @@ class AudioRecorderService : Service() {
         )
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            removeFloatingWidget()
             stopSelf()
             return
         }

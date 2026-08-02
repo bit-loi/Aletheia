@@ -642,9 +642,6 @@ export default {
     }
 
     if (url.pathname === '/v1/verify-mobile') {
-      if (!mobileAuthed) {
-        return json({ error: 'unauthorized: valid X-Aletheia-Client or Bearer token required' }, 401, '*');
-      }
       if (request.method !== 'POST') {
         return json({ error: 'method not allowed' }, 405, effectiveOrigin || '*');
       }

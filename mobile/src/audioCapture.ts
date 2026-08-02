@@ -17,7 +17,7 @@
 import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
 import { CONFIG } from './config';
 
-const { AudioRecorderModule } = NativeModules;
+const { AudioRecorderModule, OverlayPermissionModule } = NativeModules;
 
 export type RecordingState = 'idle' | 'recording' | 'processing' | 'error';
 
@@ -137,7 +137,7 @@ export function isRecording(): boolean {
 export async function isHeadphonesConnected(): Promise<boolean> {
   try {
     return await AudioRecorderModule.isHeadphonesConnected();
-  } catch (_) {
+  } catch {
     // If the native module isn't available, assume no headphones
     // (better to attempt recording than to block it)
     return false;
@@ -183,10 +183,6 @@ export async function requestMicrophonePermission(): Promise<boolean> {
         );
       }
 
-      if (AudioRecorderModule?.requestOverlayPermission) {
-        await AudioRecorderModule.requestOverlayPermission().catch(() => {});
-      }
-
       return true;
     } else {
       return true;
@@ -197,45 +193,112 @@ export async function requestMicrophonePermission(): Promise<boolean> {
   }
 }
 
-export function updateWidgetText(text: string): void {
-  if (Platform.OS === 'android' && AudioRecorderModule?.updateWidgetText) {
+/**
+ * Floating widget integration — all through OverlayPermissionModule.
+ *
+ * The overlay permission flow is driven by the "Enable floating widget"
+ * button in the app (not silently inside the microphone request), per the
+ * widget build spec: open Settings → AppState listener → start service.
+ */
+
+export function updateWidgetStatus(text: string): void {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.updateWidgetStatus) {
     try {
-      AudioRecorderModule.updateWidgetText(text);
-    } catch (_) {}
+      OverlayPermissionModule.updateWidgetStatus(text);
+    } catch {}
   }
 }
 
-export function updateWidgetVerdict(verdict: string, claim: string, explanation: string): void {
-  if (Platform.OS === 'android' && AudioRecorderModule?.updateWidgetVerdict) {
+export function updateWidgetVerdict(verdictJson: string): void {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.updateWidgetVerdict) {
     try {
-      AudioRecorderModule.updateWidgetVerdict(verdict, claim, explanation);
-    } catch (_) {}
+      OverlayPermissionModule.updateWidgetVerdict(verdictJson);
+    } catch {}
   }
 }
 
 export function closeWidget(): void {
-  if (Platform.OS === 'android' && AudioRecorderModule?.closeWidget) {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.closeWidget) {
     try {
-      AudioRecorderModule.closeWidget();
-    } catch (_) {}
+      OverlayPermissionModule.closeWidget();
+    } catch {}
   }
 }
 
 export async function checkOverlayPermission(): Promise<boolean> {
-  if (Platform.OS === 'android' && AudioRecorderModule?.checkOverlayPermission) {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.checkOverlayPermission) {
     try {
-      return await AudioRecorderModule.checkOverlayPermission();
-    } catch (_) {
-      return true;
+      return await OverlayPermissionModule.checkOverlayPermission();
+    } catch {
+      return false;
     }
   }
-  return true;
+  return false;
+}
+
+/**
+ * Opens Settings.ACTION_MANAGE_OVERLAY_PERMISSION. Resolves true when the
+ * permission is already granted; false when the settings screen was opened
+ * (the AppState listener in App.tsx picks up the grant on return).
+ */
+export async function requestOverlayPermission(): Promise<boolean> {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.requestOverlayPermission) {
+    try {
+      return await OverlayPermissionModule.requestOverlayPermission();
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/** Force the widget card open (called when a Listen session starts). */
+export function expandWidget(): void {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.expandWidget) {
+    try {
+      OverlayPermissionModule.expandWidget();
+    } catch {}
+  }
+}
+
+/** Start the floating widget foreground service (idempotent). */
+export function startFloatingWidget(): void {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.startFloatingWidget) {
+    try {
+      OverlayPermissionModule.startFloatingWidget();
+    } catch {}
+  }
+}
+
+/** Stop and remove the floating widget. */
+export function stopFloatingWidget(): void {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.stopFloatingWidget) {
+    try {
+      OverlayPermissionModule.stopFloatingWidget();
+    } catch {}
+  }
 }
 
 export function openVendorAutoStartSettings(): void {
-  if (Platform.OS === 'android' && AudioRecorderModule?.openVendorAutoStartSettings) {
+  if (Platform.OS === 'android' && OverlayPermissionModule?.openVendorAutoStartSettings) {
     try {
-      AudioRecorderModule.openVendorAutoStartSettings();
-    } catch (_) {}
+      OverlayPermissionModule.openVendorAutoStartSettings();
+    } catch {}
+  }
+}
+
+/**
+ * Subscribe to bubble taps: each tap starts the existing Listen session.
+ * Returns a subscription with .remove(), or null off-Android / on failure.
+ */
+export function subscribeFloatingWidgetTap(
+  callback: () => void,
+): {remove: () => void} | null {
+  if (Platform.OS !== 'android' || !OverlayPermissionModule) return null;
+  try {
+    const emitter = new NativeEventEmitter(OverlayPermissionModule);
+    return emitter.addListener('onFloatingWidgetTap', callback);
+  } catch {
+    return null;
   }
 }

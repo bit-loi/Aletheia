@@ -9,7 +9,7 @@
  * 5. Results view with verdict badges and source links
  */
 
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   AppState,
   Image,
@@ -28,6 +28,14 @@ import {
 LogBox.ignoreAllLogs();
 import {useListenSession, type SessionPhase} from './src/useListenSession';
 import type {ClaimResult} from './src/verifyContent';
+import {
+  checkOverlayPermission,
+  openVendorAutoStartSettings,
+  requestOverlayPermission,
+  startFloatingWidget,
+  stopFloatingWidget,
+  subscribeFloatingWidgetTap,
+} from './src/audioCapture';
 
 // Theme Definitions matching shared/tokens.js
 
@@ -101,13 +109,39 @@ function App(): React.JSX.Element {
   const {state, startSession, cancelSession, resetSession, checkHeadphones} =
     useListenSession();
 
+  const [floatingWidgetEnabled, setFloatingWidgetEnabled] = useState(false);
+  const [showAutoStartTip, setShowAutoStartTip] = useState(true);
+  // Latest language captured for the widget-tap subscription without
+  // re-subscribing on every language toggle.
+  const langRef = useRef(lang);
+  langRef.current = lang;
+  // Set when the user taps "Enable floating widget" and we had to leave the
+  // app for Settings; cleared once the grant is detected on return.
+  const pendingOverlayEnableRef = useRef(false);
+
   useEffect(() => {
     checkHeadphones();
     const interval = setInterval(checkHeadphones, 3000);
 
+    // Overlay permission may already be granted from an earlier session.
+    checkOverlayPermission().then(granted => {
+      if (granted) setFloatingWidgetEnabled(true);
+    });
+
     const subscription = AppState.addEventListener('change', async nextState => {
       if (nextState === 'active') {
         checkHeadphones();
+        // User came back from Settings after tapping "Enable floating
+        // widget": if the overlay permission is now granted, start the
+        // widget foreground service immediately — no second button press.
+        if (pendingOverlayEnableRef.current) {
+          const granted = await checkOverlayPermission();
+          if (granted) {
+            pendingOverlayEnableRef.current = false;
+            startFloatingWidget();
+            setFloatingWidgetEnabled(true);
+          }
+        }
       }
     });
 
@@ -117,12 +151,35 @@ function App(): React.JSX.Element {
     };
   }, [checkHeadphones]);
 
-  const toggleTheme = () => {
-    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  // Bubble tap → run the existing Listen session (same flow as the button).
+  useEffect(() => {
+    const sub = subscribeFloatingWidgetTap(() => {
+      startSession(langRef.current);
+    });
+    return () => {
+      sub?.remove();
+    };
+  }, [startSession]);
+
+  const handleEnableWidget = async () => {
+    const granted = await checkOverlayPermission();
+    if (granted) {
+      startFloatingWidget();
+      setFloatingWidgetEnabled(true);
+      return;
+    }
+    // Open Settings; the AppState listener starts the service on return.
+    pendingOverlayEnableRef.current = true;
+    await requestOverlayPermission();
   };
 
-  const toggleLang = () => {
-    setLang(prev => (prev === 'id' ? 'en' : 'id'));
+  const handleHideWidget = () => {
+    stopFloatingWidget();
+    setFloatingWidgetEnabled(false);
+  };
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
 
   return (
@@ -259,6 +316,12 @@ function App(): React.JSX.Element {
             onListen={() => startSession(lang)}
             onCancel={cancelSession}
             onRetry={resetSession}
+            floatingWidgetEnabled={floatingWidgetEnabled}
+            showAutoStartTip={showAutoStartTip}
+            onEnableWidget={handleEnableWidget}
+            onHideWidget={handleHideWidget}
+            onDismissAutoStartTip={() => setShowAutoStartTip(false)}
+            onOpenAutoStartSettings={openVendorAutoStartSettings}
           />
         )}
       </View>
@@ -288,6 +351,12 @@ interface LaunchViewProps {
   onListen: () => void;
   onCancel: () => void;
   onRetry: () => void;
+  floatingWidgetEnabled: boolean;
+  showAutoStartTip: boolean;
+  onEnableWidget: () => void;
+  onHideWidget: () => void;
+  onDismissAutoStartTip: () => void;
+  onOpenAutoStartSettings: () => void;
 }
 
 function LaunchView({
@@ -300,6 +369,12 @@ function LaunchView({
   onListen,
   onCancel,
   onRetry,
+  floatingWidgetEnabled,
+  showAutoStartTip,
+  onEnableWidget,
+  onHideWidget,
+  onDismissAutoStartTip,
+  onOpenAutoStartSettings,
 }: LaunchViewProps) {
   const isEn = lang === 'en';
   const isActive = phase === 'recording';
@@ -380,6 +455,92 @@ function LaunchView({
             ? 'Aletheia automatically extracts factual statements from playing media and verifies them against trusted sources.'
             : 'Aletheia secara otomatis mengekstrak pernyataan faktual dari media yang diputar dan memverifikasinya terhadap sumber terpercaya.'}
         </Text>
+      </View>
+
+      {/* Floating Widget Card */}
+      <View
+        style={[
+          styles.modeCard,
+          {backgroundColor: tokens.surface, borderColor: tokens.borderHairline},
+        ]}>
+        <View style={styles.widgetHeaderRow}>
+          <Text style={[styles.modeCardLabel, {color: tokens.inkMuted}]}>
+            {isEn ? 'FLOATING WIDGET' : 'WIDGET MELAYANG'}
+          </Text>
+          {floatingWidgetEnabled && (
+            <View
+              style={[
+                styles.widgetStatusChip,
+                {backgroundColor: tokens.verdictTrueAccent + '22'},
+              ]}>
+              <Text
+                style={[styles.widgetStatusText, {color: tokens.verdictTrueInk}]}>
+                {isEn ? 'ACTIVE' : 'AKTIF'}
+              </Text>
+            </View>
+          )}
+        </View>
+        <Text style={[styles.modeCardDescription, {color: tokens.inkMuted}]}>
+          {isEn
+            ? 'A draggable bubble floats over other apps. Tap it to fact-check what you hear.'
+            : 'Bubble yang dapat digeser melayang di atas aplikasi lain. Ketuk untuk memeriksa fakta yang Anda dengar.'}
+        </Text>
+        <TouchableOpacity
+          style={[
+            styles.widgetButton,
+            {
+              backgroundColor: tokens.surfaceRaised,
+              borderColor: tokens.borderHairline,
+            },
+          ]}
+          onPress={floatingWidgetEnabled ? onHideWidget : onEnableWidget}
+          activeOpacity={0.8}>
+          <Text style={[styles.widgetButtonText, {color: tokens.ink}]}>
+            {floatingWidgetEnabled
+              ? isEn
+                ? 'HIDE WIDGET'
+                : 'SEMBUNYIKAN WIDGET'
+              : isEn
+              ? 'ENABLE FLOATING WIDGET'
+              : 'AKTIFKAN WIDGET MELAYANG'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* One-time, best-effort vendor auto-start suggestion */}
+        {showAutoStartTip && (
+          <View
+            style={[
+              styles.autoStartTip,
+              {
+                backgroundColor: tokens.surfaceRaised,
+                borderColor: tokens.borderHairline,
+              },
+            ]}>
+            <Text style={[styles.autoStartTipText, {color: tokens.inkMuted}]}>
+              {isEn
+                ? 'For best reliability on this device, allow auto-start.'
+                : 'Untuk keandalan terbaik di perangkat ini, izinkan auto-start.'}
+            </Text>
+            <View style={styles.autoStartActions}>
+              <TouchableOpacity
+                onPress={onOpenAutoStartSettings}
+                activeOpacity={0.7}
+                style={styles.autoStartLinkBtn}>
+                <Text style={[styles.autoStartLink, {color: tokens.focus}]}>
+                  {isEn ? 'OPEN SETTINGS' : 'BUKA PENGATURAN'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={onDismissAutoStartTip}
+                activeOpacity={0.7}
+                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                <Text style={[styles.autoStartDismiss, {color: tokens.inkMuted}]}>
+                  ✕
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Action Button */}
@@ -691,6 +852,62 @@ const styles = StyleSheet.create({
   // Launch Panel
   launchScroll: {
     flex: 1,
+  },
+  widgetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  widgetStatusChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  widgetStatusText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  widgetButton: {
+    marginTop: 10,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  widgetButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  autoStartTip: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  autoStartTipText: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  autoStartActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  autoStartLinkBtn: {
+    paddingVertical: 2,
+  },
+  autoStartLink: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textDecorationLine: 'underline',
+  },
+  autoStartDismiss: {
+    fontSize: 13,
+    paddingHorizontal: 4,
   },
   launchContainer: {
     padding: 16,

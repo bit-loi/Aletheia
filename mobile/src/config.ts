@@ -1,20 +1,23 @@
 /**
  * config.ts: Centralized configuration for Aletheia Mobile.
  *
- * All backend URLs and auth tokens are read from environment config,
- * never hardcoded. React Native does not have process.env in the
- * traditional Node sense, so we use react-native-config or inline
- * defaults that are overridden at build time.
+ * Secrets live in config.env.ts (gitignored). Copy config.env.example.ts
+ * to config.env.ts and fill in real values before running the app.
  */
 
-// In production, these come from .env via react-native-config.
-// For the demo, they can be set directly here.
+import { ENV } from './config.env';
+
 export const CONFIG = {
   /** Aletheia proxy (Cloudflare Worker) base URL. */
   PROXY_URL: 'https://aletheia-proxy.rizkymirza18.workers.dev',
 
-  /** Bearer token for mobile auth against the Worker. */
-  MOBILE_API_TOKEN: '',
+  /**
+   * Shared token for mobile auth against the Worker. Sent as
+   * `Authorization: Bearer <token>` (and accepted via X-Aletheia-Client).
+   * Must match the Worker secret MOBILE_API_TOKEN character-for-character
+   * or the proxy rejects every request with 401.
+   */
+  MOBILE_API_TOKEN: ENV.MOBILE_API_TOKEN || '',
 
   /** Maximum recording duration in milliseconds. */
   MAX_RECORD_DURATION_MS: 15_000,
@@ -22,6 +25,6 @@ export const CONFIG = {
   /** Gemini model used for batch transcription via the proxy. */
   TRANSCRIPTION_MODEL: 'gemini-2.5-flash',
 
-  /** PaddleOCR microservice URL (Phase 2, not used in Phase 1). */
-  OCR_SERVICE_URL: '',
+  /** PaddleOCR microservice URL (set to ngrok URL for demo). */
+  OCR_SERVICE_URL: ENV.OCR_SERVICE_URL || '',
 };
