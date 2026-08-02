@@ -136,24 +136,27 @@ async function sendToTab(tabId, message) {
   });
 }
 
+async function getStoredLang() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(['lang'], (data) => {
+      resolve(data.lang || 'id');
+    });
+  });
+}
+
 // ─── Article Mode Handler ─────────────────────────────────────────────────────
 
-async function handleArticleCheck(tabId, text, title, url) {
+async function handleArticleCheck(tabId, text, title, url, langOverride) {
   try {
-    // Step 1: Extract claims
+    const lang = langOverride || await getStoredLang();
     sendToTab(tabId, {
       type: 'STATUS_UPDATE',
-      status: 'Extracting factual claims…',
+      status: lang === 'en' ? 'Extracting factual claims…' : 'Mengekstrak klaim faktual…',
       phase: 'extracting',
     });
 
-    // Deliberately not caught here. This used to substitute two hardcoded
-    // claims on any extraction failure, which meant the overlay reported
-    // "Done: 2 claims checked" for sentences that appeared nowhere in the
-    // article. The outer handler turns a throw into PIPELINE_ERROR, which the
-    // overlay renders as a real error with a retry.
-    const claims = await extractClaims(text);
-    await processClaims(tabId, claims, title === 'YouTube transcript' ? 'youtube' : 'article');
+    const claims = await extractClaims(text, lang);
+    await processClaims(tabId, claims, title === 'YouTube transcript' ? 'youtube' : 'article', lang);
   } catch (err) {
     sendToTab(tabId, {
       type: 'PIPELINE_ERROR',
@@ -162,7 +165,7 @@ async function handleArticleCheck(tabId, text, title, url) {
   }
 }
 
-async function processClaims(tabId, claims, mode) {
+async function processClaims(tabId, claims, mode, lang = 'id') {
   if (!claims?.length) {
     sendToTab(tabId, {
       type: 'PIPELINE_COMPLETE',
@@ -181,7 +184,7 @@ async function processClaims(tabId, claims, mode) {
 
     sendToTab(tabId, {
       type: 'STATUS_UPDATE',
-      status: `Checking claim ${i + 1} of ${targetClaims.length}…`,
+      status: lang === 'en' ? `Checking claim ${i + 1} of ${targetClaims.length}…` : `Memeriksa klaim ${i + 1} dari ${targetClaims.length}…`,
       phase: 'checking',
       current: i + 1,
       total: targetClaims.length,
@@ -205,7 +208,7 @@ async function processClaims(tabId, claims, mode) {
     }
 
     try {
-      const result = await generateVerdict(claim, evidence);
+      const result = await generateVerdict(claim, evidence, lang);
       try {
         await cacheVerdict(claim, result);
       } catch (_) {
@@ -218,7 +221,7 @@ async function processClaims(tabId, claims, mode) {
         type: 'CLAIM_RESULT',
         claim,
         verdict: 'Unverified',
-        explanation: `Could not generate a verdict: ${err.message}`,
+        explanation: lang === 'en' ? `Could not generate a verdict: ${err.message}` : `Tidak dapat membuat verifikasi: ${err.message}`,
         confidence: 'Low',
         key_sources: [],
         fromCache: false,

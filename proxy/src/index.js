@@ -72,7 +72,7 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'content-type',
+    'Access-Control-Allow-Headers': 'content-type, authorization, x-aletheia-client',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
@@ -103,6 +103,28 @@ function allowedOrigin(request, env) {
   const matches = allowed.includes(origin) ||
     (allowed.includes('chrome-extension://*') && isChromeExtension);
   return matches ? origin : null;
+}
+
+/**
+ * Authenticate mobile clients via a shared bearer token or custom header.
+ *
+ * React Native's fetch() does not send an Origin header. Mobile clients send
+ * `X-Aletheia-Client: <MOBILE_API_TOKEN>` or `Authorization: Bearer <MOBILE_API_TOKEN>`
+ * and receive CORS headers.
+ *
+ * The token is set as a Cloudflare secret:
+ *   wrangler secret put MOBILE_API_TOKEN
+ */
+function isMobileAuthed(request, env) {
+  const token = env.MOBILE_API_TOKEN || env.MOBILE_CLIENT_TOKEN;
+  if (!token) return false;
+
+  const customHeader = request.headers.get('X-Aletheia-Client') || request.headers.get('x-aletheia-client') || '';
+  if (customHeader === token) return true;
+
+  const auth = request.headers.get('Authorization') || '';
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  return !!(match && match[1] === token);
 }
 
 /** Read a JSON body with a hard size cap. */
@@ -341,6 +363,262 @@ async function handleGeminiLiveToken(env, origin) {
   }
 }
 
+// ─── Verification Pipeline for Mobile ────────────────────────────────────────
+
+const CLAIM_EXTRACTION_PROMPT = `You are a fact-checking assistant. Your task is to extract specific, discrete, falsifiable factual claims from the following text.
+
+Rules:
+- Only include claims that can be verified against external sources (statistics, events, attributions, scientific statements).
+- Each claim must be self-contained (understandable without the surrounding text).
+- Do NOT include opinions, predictions, rhetorical questions, or vague statements.
+- Do NOT include claims that are trivially obvious (e.g. "the sky is blue").
+- Rewrite each claim as a clear, concise sentence. Do not just copy chunks of the source text.
+- Limit to the 2–4 most significant, distinct, and verifiable claims.
+- Return ONLY a valid JSON array of strings. No explanation, no markdown, no extra text.
+
+Example output:
+["Indonesia's GDP grew 5.1% in Q3 2025.", "The WHO declared mpox a global health emergency in August 2024."]`;
+
+const VERDICT_PROMPT = `You are a rigorous fact-checker. Evaluate the following claim based ONLY on the evidence provided below. Do NOT use your own training knowledge. Ground your verdict strictly in the supplied sources.
+
+Claim:
+"{CLAIM}"
+
+Evidence:
+{EVIDENCE}
+
+Respond with ONLY valid JSON (no markdown fences, no extra text):
+{
+  "verdict": "True" | "False" | "Misleading" | "Unverified",
+  "explanation": "2–3 sentence explanation of your reasoning, referencing specific sources",
+  "confidence": "High" | "Medium" | "Low",
+  "key_sources": ["url1", "url2"]
+}
+
+Verdict definitions:
+- True: the claim is well-supported by the evidence.
+- False: the evidence clearly contradicts the claim.
+- Misleading: the claim contains a grain of truth but omits critical context, exaggerates, or distorts.
+- Unverified: the evidence is insufficient to confirm or deny the claim.`;
+
+function parseJSON(raw) {
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (_) {}
+
+  const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    try {
+      return JSON.parse(arrayMatch[0]);
+    } catch (_) {}
+  }
+
+  const objectMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    try {
+      return JSON.parse(objectMatch[0]);
+    } catch (_) {}
+  }
+
+  throw new Error(`Invalid JSON format: ${raw.slice(0, 150)}`);
+}
+
+async function workerCallLLM(promptText, env, temperature = 0.2, maxTokens = 2048) {
+  const chain = (env.LLM_CHAIN || 'nvidia')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((id) => PROVIDERS[id]);
+
+  const payload = {
+    messages: [{ role: 'user', content: promptText }],
+    temperature,
+    max_tokens: maxTokens,
+  };
+
+  for (const id of chain) {
+    const result = await callProvider(PROVIDERS[id], env, payload);
+    if (result.ok) return result.content;
+  }
+  throw new Error('All LLM providers unavailable');
+}
+
+async function workerSearch(query, env, maxResults = 3) {
+  const chain = (env.SEARCH_CHAIN || 'searxng,tavily,wikipedia')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((id) => SEARCH_PROVIDERS[id]);
+
+  for (const id of chain) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+    try {
+      const results = await SEARCH_PROVIDERS[id](query, maxResults, env, controller.signal);
+      if (results && results.length > 0) {
+        return results;
+      }
+    } catch (err) {
+      console.log(JSON.stringify({ event: 'worker_search_failed', provider: id, error: err.message }));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return [];
+}
+
+const WORKER_CLAIM_EXTRACTION_PROMPT_ID = `Anda adalah asisten pemeriksa fakta profesional. Tugas Anda adalah mengekstrak klaim faktual spesifik yang dapat diverifikasi kebenarannya dari teks berikut.
+
+Aturan:
+- Hanya sertakan klaim yang dapat diverifikasi dengan sumber eksternal (statistik, peristiwa, pernyataan tokoh, fakta ilmiah).
+- Setiap klaim harus berdiri sendiri dan mudah dipahami tanpa membaca seluruh teks.
+- JANGAN menyertakan opini, prediksi, pertanyaan retoris, atau klaim samar.
+- Tulis ulang setiap klaim menjadi kalimat yang jelas dan tepat dalam Bahasa Indonesia.
+- Batasi hingga 2–4 klaim paling signifikan dan penting.
+- Berikan hasil HANYA berupa JSON array of strings dalam Bahasa Indonesia. Tanpa penjelasan tambahan, tanpa markdown format.`;
+
+const WORKER_CLAIM_EXTRACTION_PROMPT_EN = `You are a professional fact-checking assistant. Your task is to extract specific, discrete, falsifiable factual claims from the following text.
+
+Rules:
+- Only include claims that can be verified against external sources (statistics, events, attributions, scientific statements).
+- Each claim must be self-contained (understandable without the surrounding text).
+- Do NOT include opinions, predictions, rhetorical questions, or vague statements.
+- Rewrite each claim as a clear, concise sentence in English.
+- Limit to the 2 to 4 most significant, distinct, and verifiable claims.
+- Return ONLY a valid JSON array of strings in English. No explanation, no markdown format.`;
+
+async function workerExtractClaims(text, env, lang = 'id') {
+  const truncated = text.length > 12000 ? text.slice(0, 12000) + '\n[…text truncated…]' : text;
+  const basePrompt = lang === 'en' ? WORKER_CLAIM_EXTRACTION_PROMPT_EN : WORKER_CLAIM_EXTRACTION_PROMPT_ID;
+  const label = lang === 'en' ? 'Text to analyze' : 'Teks yang dianalisis';
+  const prompt = basePrompt + `\n\n${label}:\n"""\n${truncated}\n"""`;
+  const content = await workerCallLLM(prompt, env, 0.2, 2048);
+
+  try {
+    const claims = parseJSON(content);
+    if (Array.isArray(claims) && claims.length > 0) {
+      const filtered = claims.filter((c) => typeof c === 'string' && c.trim().length >= 10);
+      if (filtered.length > 0) return filtered.slice(0, 3);
+    }
+  } catch (_) {}
+
+  const lines = content
+    .split('\n')
+    .map((l) => l.replace(/^[\d\-\.\)\*]+\s*/, '').trim())
+    .filter((l) => l.length >= 10);
+  return lines.slice(0, 3);
+}
+
+const WORKER_VERDICT_PROMPT_ID = `Anda adalah seorang pemeriksa fakta yang independen dan teliti. Evaluasi klaim berikut berdasarkan HANYA bukti-bukti yang disediakan di bawah ini. JANGAN menggunakan pengetahuan di luar bukti yang diberikan.
+
+Klaim yang diperiksa:
+"{CLAIM}"
+
+Bukti-bukti sumber:
+{EVIDENCE}
+
+Tuliskan respons Anda HANYA dalam format JSON valid (tanpa blok markdown \`\`\`json, tanpa teks tambahan):
+{
+  "verdict": "True" | "False" | "Misleading" | "Unverified",
+  "explanation": "Penjelasan ringkas 2 sampai 3 kalimat dalam Bahasa Indonesia yang logis dan jelas mengenai alasan verifikasi berdasarkan bukti yang ditemukan.",
+  "confidence": "High" | "Medium" | "Low",
+  "key_sources": ["url1", "url2"]
+}`;
+
+const WORKER_VERDICT_PROMPT_EN = `You are a rigorous, independent fact-checker. Evaluate the following claim based ONLY on the evidence provided below. Do NOT use your own training knowledge. Ground your verdict strictly in the supplied sources.
+
+Claim:
+"{CLAIM}"
+
+Evidence:
+{EVIDENCE}
+
+Respond with ONLY valid JSON (no markdown fences, no extra text):
+{
+  "verdict": "True" | "False" | "Misleading" | "Unverified",
+  "explanation": "Write a 2 to 3 sentence explanation of your reasoning in clear, natural English, referencing specific sources",
+  "confidence": "High" | "Medium" | "Low",
+  "key_sources": ["url1", "url2"]
+}`;
+
+async function workerGenerateVerdict(claim, evidence, env, lang = 'id') {
+  const evidenceText =
+    evidence.length > 0
+      ? evidence
+          .map((e, i) => `[${i + 1}] ${e.title}\n    URL: ${e.url}\n    "${e.snippet}"`)
+          .join('\n\n')
+      : '(No evidence was found for this claim.)';
+
+  const basePrompt = lang === 'en' ? WORKER_VERDICT_PROMPT_EN : WORKER_VERDICT_PROMPT_ID;
+  const prompt = basePrompt.replace('{CLAIM}', claim).replace('{EVIDENCE}', evidenceText);
+  const content = await workerCallLLM(prompt, env, 0.1, 1024);
+
+  try {
+    const verdict = parseJSON(content);
+    const validVerdicts = ['True', 'False', 'Misleading', 'Unverified'];
+    if (!validVerdicts.includes(verdict.verdict)) {
+      verdict.verdict = 'Unverified';
+    }
+    return {
+      verdict: verdict.verdict,
+      explanation: verdict.explanation || (lang === 'en' ? 'No explanation provided.' : 'Tidak ada penjelasan yang diberikan.'),
+      confidence: verdict.confidence || 'Low',
+      key_sources: Array.isArray(verdict.key_sources) ? verdict.key_sources : [],
+    };
+  } catch (_) {
+    return {
+      verdict: 'Unverified',
+      explanation: lang === 'en' ? 'Could not parse the fact-check result.' : 'Tidak dapat memproses hasil pemeriksaan fakta.',
+      confidence: 'Low',
+      key_sources: [],
+    };
+  }
+}
+
+async function handleVerifyMobile(request, env, origin) {
+  const payload = await readJson(request);
+  const lang = payload.lang === 'en' ? 'en' : 'id';
+  let text = payload.text || payload.claimText || payload.claim;
+  if (!text && (payload.transcript || payload.ocrText)) {
+    const parts = [];
+    if (payload.transcript) parts.push(`[Audio Transcript]:\n${payload.transcript.trim()}`);
+    if (payload.ocrText) parts.push(`[Screen Text / OCR]:\n${payload.ocrText.trim()}`);
+    text = parts.join('\n\n');
+  }
+
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return json({ error: 'text, claim, transcript, or ocrText required' }, 400, origin);
+  }
+
+  const claims = await workerExtractClaims(text, env, lang);
+  if (claims.length === 0) {
+    return json({
+      verdict: 'Unverified',
+      confidence: 'Low',
+      explanation: lang === 'en' ? 'No verifiable factual claims were found in the context.' : 'Tidak ada klaim faktual yang dapat diverifikasi dalam konteks ini.',
+      sources: [],
+      claims: [],
+    }, 200, origin);
+  }
+
+  const results = [];
+  for (const claim of claims) {
+    const evidence = await workerSearch(claim, env, 3);
+    const verdict = await workerGenerateVerdict(claim, evidence, env, lang);
+    results.push({ claim, verdict });
+  }
+
+  const primary = results[0].verdict;
+  return json({
+    verdict: primary.verdict,
+    confidence: primary.confidence,
+    explanation: primary.explanation,
+    sources: primary.key_sources,
+    claims: results,
+  }, 200, origin);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -350,41 +628,61 @@ export default {
     }
 
     const origin = allowedOrigin(request, env);
+    const mobileAuthed = isMobileAuthed(request, env);
+    const effectiveOrigin = origin || (mobileAuthed ? (request.headers.get('Origin') || '*') : '*');
 
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: origin ? 204 : 403, headers: corsHeaders(origin || '') });
+      const reqHeaders = request.headers.get('Access-Control-Request-Headers') || '';
+      const isMobilePreflight = reqHeaders.toLowerCase().includes('x-aletheia-client');
+      const allowOptions = effectiveOrigin || isMobilePreflight;
+      return new Response(null, {
+        status: allowOptions ? 204 : 403,
+        headers: corsHeaders(allowOptions ? (request.headers.get('Origin') || '*') : ''),
+      });
     }
-    if (!origin) {
+
+    if (url.pathname === '/v1/verify-mobile') {
+      if (!mobileAuthed) {
+        return json({ error: 'unauthorized: valid X-Aletheia-Client or Bearer token required' }, 401, '*');
+      }
+      if (request.method !== 'POST') {
+        return json({ error: 'method not allowed' }, 405, effectiveOrigin || '*');
+      }
+      if (env.RL && typeof env.RL.limit === 'function') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const { success } = await env.RL.limit({ key: ip });
+        if (!success) {
+          return json({ error: 'rate limited', retryAfter: 60 }, 429, effectiveOrigin || '*');
+        }
+      }
+      return await handleVerifyMobile(request, env, effectiveOrigin || '*');
+    }
+
+    if (!effectiveOrigin) {
       return json({ error: 'origin not allowed' }, 403, null);
     }
     if (request.method !== 'POST') {
-      return json({ error: 'method not allowed' }, 405, origin);
+      return json({ error: 'method not allowed' }, 405, effectiveOrigin);
     }
 
-    // The rate-limit binding is configured in wrangler.jsonc. If this Worker was
-    // created through the dashboard instead, the binding may be absent; degrade
-    // rather than throwing, and say so in the logs so it is not silently
-    // unprotected.
     if (env.RL && typeof env.RL.limit === 'function') {
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
       const { success } = await env.RL.limit({ key: ip });
       if (!success) {
-        return json({ error: 'rate limited', retryAfter: 60 }, 429, origin);
+        return json({ error: 'rate limited', retryAfter: 60 }, 429, effectiveOrigin);
       }
     } else {
       console.log(JSON.stringify({ event: 'rate_limiter_missing' }));
     }
 
     try {
-      if (url.pathname === '/v1/chat') return await handleChat(request, env, origin);
-      if (url.pathname === '/v1/search') return await handleSearch(request, env, origin);
-      if (url.pathname === '/v1/gemini-live-token') return await handleGeminiLiveToken(env, origin);
-      return json({ error: 'not found' }, 404, origin);
+      if (url.pathname === '/v1/chat') return await handleChat(request, env, effectiveOrigin);
+      if (url.pathname === '/v1/search') return await handleSearch(request, env, effectiveOrigin);
+      if (url.pathname === '/v1/gemini-live-token') return await handleGeminiLiveToken(env, effectiveOrigin);
+      return json({ error: 'not found' }, 404, effectiveOrigin);
     } catch (err) {
-      // Explicit handling rather than passThroughOnException, which would hide
-      // the bug and return an opaque 1101.
       console.log(JSON.stringify({ event: 'unhandled', message: err.message }));
-      return json({ error: 'proxy error' }, 500, origin);
+      return json({ error: 'proxy error' }, 500, effectiveOrigin);
     }
   },
 };

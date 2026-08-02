@@ -2,7 +2,10 @@ import { CONFIG } from '../config.js';
 
 // === Elements ===
 const themeToggle = document.getElementById('theme-toggle');
+const langBtnId = document.getElementById('lang-btn-id');
+const langBtnEn = document.getElementById('lang-btn-en');
 const startFactCheckBtn = document.getElementById('start-fact-check-btn');
+const modeCardLabel = document.getElementById('mode-card-label');
 const modeTitle = document.getElementById('mode-title');
 const modeDescription = document.getElementById('mode-description');
 const modeHint = document.getElementById('mode-hint');
@@ -10,37 +13,96 @@ const actionStatus = document.getElementById('action-status');
 const connectionStatus = document.getElementById('connection-status');
 const connectionTitle = document.getElementById('connection-title');
 const connectionDetail = document.getElementById('connection-detail');
+
 let activeTab = null;
 let activeMode = 'unsupported';
+let currentLang = 'id';
+let proxyOk = true;
 
 function applyTheme(isLight) {
   if (isLight) {
     document.body.classList.add('light-theme');
-    themeToggle.checked = true;
+    if (themeToggle) themeToggle.checked = true;
   } else {
     document.body.classList.remove('light-theme');
-    themeToggle.checked = false;
+    if (themeToggle) themeToggle.checked = false;
   }
 }
 
-chrome.storage.sync.get(['theme'], (data) => applyTheme(data.theme === 'light'));
+function updateAllUiStrings() {
+  const isEn = currentLang === 'en';
 
-// The overlay live-syncs theme via storage.onChanged; without this the popup
-// only picked up the theme on load, so the two surfaces could disagree.
+  if (modeCardLabel) {
+    modeCardLabel.textContent = isEn ? 'Current Page' : 'Halaman saat ini';
+  }
+
+  if (connectionTitle && connectionDetail) {
+    if (!proxyOk) {
+      connectionStatus?.classList.add('is-offline');
+      connectionTitle.textContent = isEn ? 'Proxy Unavailable' : 'Proxy tidak tersedia';
+      connectionDetail.textContent = isEn ? 'Check network connection, then launch Aletheia again.' : 'Periksa koneksi Anda, lalu buka Aletheia kembali.';
+    } else {
+      connectionStatus?.classList.remove('is-offline');
+      connectionTitle.textContent = isEn ? 'Secure Proxy Connected' : 'Proxy aman terhubung';
+      connectionDetail.textContent = isEn ? 'Gemini and search services ready.' : 'Gemini dan Tavily siap digunakan.';
+    }
+  }
+
+  if (activeTab) {
+    renderMode(activeTab, activeMode);
+  }
+}
+
+function applyLang(lang) {
+  currentLang = lang === 'en' ? 'en' : 'id';
+  if (langBtnId && langBtnEn) {
+    if (currentLang === 'en') {
+      langBtnEn.classList.add('active');
+      langBtnId.classList.remove('active');
+    } else {
+      langBtnId.classList.add('active');
+      langBtnEn.classList.remove('active');
+    }
+  }
+  updateAllUiStrings();
+}
+
+chrome.storage.sync.get(['theme', 'lang'], (data) => {
+  applyTheme(data.theme === 'light');
+  applyLang(data.lang || 'id');
+});
+
 if (chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes.theme) applyTheme(changes.theme.newValue === 'light');
+    if (area === 'sync') {
+      if (changes.theme) applyTheme(changes.theme.newValue === 'light');
+      if (changes.lang) applyLang(changes.lang.newValue || 'id');
+    }
   });
 }
 
-// === Theme toggle listener ===
-themeToggle.addEventListener('change', () => {
-  const isLight = themeToggle.checked;
-  applyTheme(isLight);
-  chrome.storage.sync.set({ theme: isLight ? 'light' : 'dark' });
-});
+if (themeToggle) {
+  themeToggle.addEventListener('change', () => {
+    const isLight = themeToggle.checked;
+    applyTheme(isLight);
+    chrome.storage.sync.set({ theme: isLight ? 'light' : 'dark' });
+  });
+}
 
-// === Active Tab Fact-Check Trigger ===
+if (langBtnId) {
+  langBtnId.addEventListener('click', () => {
+    applyLang('id');
+    chrome.storage.sync.set({ lang: 'id' });
+  });
+}
+
+if (langBtnEn) {
+  langBtnEn.addEventListener('click', () => {
+    applyLang('en');
+    chrome.storage.sync.set({ lang: 'en' });
+  });
+}
+
 function isYouTubeVideo(urlString) {
   try {
     const url = new URL(urlString);
@@ -55,10 +117,8 @@ function isYouTubeVideo(urlString) {
   }
 }
 
-/**
- * Show a transient message in the status line.
- */
 function showNotice(text, ms = 3200) {
+  if (!actionStatus) return;
   actionStatus.textContent = text;
   actionStatus.classList.add('visible');
   setTimeout(() => actionStatus.classList.remove('visible'), ms);
@@ -92,38 +152,41 @@ async function detectMode(tab) {
 function renderMode(tab, mode) {
   activeTab = tab;
   activeMode = mode;
+  const isEn = currentLang === 'en';
+
+  if (!modeTitle || !modeDescription || !modeHint || !startFactCheckBtn) return;
 
   if (activeMode === 'youtube-live') {
-    modeTitle.textContent = 'YouTube live check';
-    modeDescription.textContent = 'Aletheia listens to the playing video and checks spoken claims as they arrive.';
-    modeHint.textContent = 'Play the video with sound before you start. Keep this tab open while Aletheia listens.';
-    startFactCheckBtn.textContent = 'Listen to live video';
+    modeTitle.textContent = isEn ? 'YouTube Live Verification' : 'Verifikasi YouTube Live';
+    modeDescription.textContent = isEn ? 'Aletheia listens to live video broadcast and verifies spoken claims in real time.' : 'Aletheia mendengarkan siaran video dan memeriksa klaim ucapan secara langsung.';
+    modeHint.textContent = isEn ? 'Ensure video audio is playing through speakers before starting.' : 'Putar video dengan suara sebelum memulai. Biarkan tab ini terbuka saat Aletheia mendengarkan.';
+    startFactCheckBtn.textContent = isEn ? 'Listen to live video' : 'Dengarkan video live';
     startFactCheckBtn.disabled = false;
     return;
   }
 
   if (activeMode === 'youtube-recorded') {
-    modeTitle.textContent = 'YouTube video check';
-    modeDescription.textContent = 'Aletheia listens with Gemini and checks spoken claims as the video plays.';
-    modeHint.textContent = 'Play the video with sound before you start. You can pause when you want Aletheia to stop hearing new claims.';
-    startFactCheckBtn.textContent = 'Listen to this video';
+    modeTitle.textContent = isEn ? 'YouTube Video Verification' : 'Verifikasi Video YouTube';
+    modeDescription.textContent = isEn ? 'Aletheia listens alongside Gemini and verifies claims as the video plays.' : 'Aletheia mendengarkan bersama Gemini dan memeriksa klaim ucapan saat video diputar.';
+    modeHint.textContent = isEn ? 'Ensure video audio is playing through speakers before starting.' : 'Putar video dengan suara sebelum memulai. Anda dapat menjeda video untuk menghentikan klaim baru.';
+    startFactCheckBtn.textContent = isEn ? 'Listen to this video' : 'Dengarkan video ini';
     startFactCheckBtn.disabled = false;
     return;
   }
 
   if (activeMode === 'article') {
-    modeTitle.textContent = 'Article check';
-    modeDescription.textContent = 'Aletheia reads the current page, finds factual claims, and checks supporting sources.';
-    modeHint.textContent = 'Results appear in a panel on the current page.';
-    startFactCheckBtn.textContent = 'Check this page';
+    modeTitle.textContent = isEn ? 'Article Verification' : 'Verifikasi Artikel';
+    modeDescription.textContent = isEn ? 'Aletheia scans the current page, extracts factual claims, and checks sources.' : 'Aletheia membaca halaman saat ini, menemukan klaim faktual, dan memeriksa sumber pendukung.';
+    modeHint.textContent = isEn ? 'Results will appear on the floating overlay card.' : 'Hasil akan muncul pada panel melayang di halaman ini.';
+    startFactCheckBtn.textContent = isEn ? 'Check this page' : 'Periksa halaman ini';
     startFactCheckBtn.disabled = false;
     return;
   }
 
-  modeTitle.textContent = 'Open something to check';
-  modeDescription.textContent = 'Switch to a web article or a YouTube video, then open Aletheia again.';
-  modeHint.textContent = 'Browser settings and internal pages cannot be fact-checked.';
-  startFactCheckBtn.textContent = 'No supported page';
+  modeTitle.textContent = isEn ? 'Open content to check' : 'Buka konten untuk diperiksa';
+  modeDescription.textContent = isEn ? 'Open a news article or YouTube video, then open Aletheia again.' : 'Buka artikel web atau video YouTube, lalu buka Aletheia kembali.';
+  modeHint.textContent = isEn ? 'Browser settings and internal pages cannot be checked.' : 'Pengaturan browser dan halaman internal tidak dapat diperiksa.';
+  startFactCheckBtn.textContent = isEn ? 'Unsupported page' : 'Halaman tidak didukung';
   startFactCheckBtn.disabled = true;
 }
 
@@ -133,38 +196,36 @@ chrome.tabs.query({ active: true, currentWindow: true })
 
 fetch(`${CONFIG.PROXY_URL}/health`)
   .then((response) => {
-    if (!response.ok) throw new Error('Proxy unavailable');
-    connectionTitle.textContent = 'Secure proxy connected';
-    connectionDetail.textContent = 'Gemini and Tavily are ready. No setup needed.';
+    proxyOk = response.ok;
+    updateAllUiStrings();
   })
   .catch(() => {
-    connectionStatus.classList.add('is-offline');
-    connectionTitle.textContent = 'Proxy unavailable';
-    connectionDetail.textContent = 'Check your connection, then reopen Aletheia.';
+    proxyOk = false;
+    updateAllUiStrings();
   });
 
-startFactCheckBtn.addEventListener('click', async () => {
-  if (!activeTab?.id || activeMode === 'unsupported') return;
+if (startFactCheckBtn) {
+  startFactCheckBtn.addEventListener('click', async () => {
+    if (!activeTab?.id || activeMode === 'unsupported') return;
 
-  startFactCheckBtn.disabled = true;
-  startFactCheckBtn.textContent = activeMode === 'youtube-live'
-    ? 'Starting listener…'
-    : activeMode === 'youtube-recorded'
-      ? 'Starting listener…'
-      : 'Starting check…';
+    const isEn = currentLang === 'en';
+    startFactCheckBtn.disabled = true;
+    startFactCheckBtn.textContent = isEn ? 'Starting listener…' : 'Memulai pendengar…';
 
-  if (activeMode.startsWith('youtube-')) {
-    await chrome.runtime.sendMessage({
-      type: 'START_YOUTUBE',
-      tabId: activeTab.id,
-    });
-  } else {
-    await chrome.tabs.sendMessage(activeTab.id, { type: 'START_ARTICLE_CHECK' }).catch(() => {
-      showNotice('Reload this page, then try again.');
-    });
-  }
+    if (activeMode.startsWith('youtube-')) {
+      await chrome.runtime.sendMessage({
+        type: 'START_YOUTUBE',
+        tabId: activeTab.id,
+        lang: currentLang,
+      });
+    } else {
+      await chrome.tabs.sendMessage(activeTab.id, { type: 'START_ARTICLE_CHECK', lang: currentLang }).catch(() => {
+        showNotice(isEn ? 'Reload this page, then try again.' : 'Muat ulang halaman ini, lalu coba lagi.');
+      });
+    }
 
-  startFactCheckBtn.textContent = 'Started';
-  showNotice('The fact-check panel is opening on this tab.');
-  setTimeout(() => renderMode(activeTab, activeMode), 1800);
-});
+    startFactCheckBtn.textContent = isEn ? 'Started' : 'Dimulai';
+    showNotice(isEn ? 'Fact check overlay is opening on this tab.' : 'Panel verifikasi sedang dibuka pada tab ini.');
+    setTimeout(() => renderMode(activeTab, activeMode), 1800);
+  });
+}

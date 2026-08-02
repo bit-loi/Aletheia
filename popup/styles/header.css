@@ -51,6 +51,41 @@
   margin-top: 2px;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lang-segmented-control {
+  display: flex;
+  align-items: center;
+  background: var(--al-surface-raised);
+  border: var(--al-hairline) solid var(--al-border-hairline);
+  border-radius: var(--al-radius-sm);
+  padding: 2px;
+}
+
+.lang-segment {
+  background: transparent;
+  border: none;
+  color: var(--al-ink-muted);
+  font-size: 10px;
+  font-family: var(--al-font-mono);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--al-dur-2) var(--al-ease-standard);
+}
+
+.lang-segment.active {
+  background-color: #ffffff;
+  color: #000000;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
 /* ===== Theme toggle ===== */
 .theme-toggle-container {
   position: relative;

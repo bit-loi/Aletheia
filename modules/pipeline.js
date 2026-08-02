@@ -169,28 +169,43 @@ export async function callLLM(promptText, temperature = 0.3, maxTokens = 2048) {
 
 // ─── Stage 1: Claim Extraction ────────────────────────────────────────────────
 
-const CLAIM_EXTRACTION_PROMPT = `You are a fact-checking assistant. Your task is to extract specific, discrete, falsifiable factual claims from the following text.
+const CLAIM_EXTRACTION_PROMPT_ID = `Anda adalah asisten pemeriksa fakta profesional. Tugas Anda adalah mengekstrak klaim faktual spesifik yang dapat diverifikasi kebenarannya dari teks berikut.
+
+Aturan:
+- Hanya sertakan klaim yang dapat diverifikasi dengan sumber eksternal (statistik, peristiwa, pernyataan tokoh, fakta ilmiah).
+- Setiap klaim harus berdiri sendiri dan mudah dipahami tanpa membaca seluruh teks.
+- JANGAN menyertakan opini, prediksi, pertanyaan retoris, atau klaim samar.
+- Tulis ulang setiap klaim menjadi kalimat yang jelas dan tepat dalam Bahasa Indonesia.
+- Batasi hingga 2–4 klaim paling signifikan dan penting.
+- Berikan hasil HANYA berupa JSON array of strings dalam Bahasa Indonesia. Tanpa penjelasan tambahan, tanpa markdown format.
+
+Contoh output:
+["Pertumbuhan PDB Indonesia mencapai 5,1% pada Q3 2025.", "WHO menyatakan mpox sebagai darurat kesehatan global pada Agustus 2024."]`;
+
+const CLAIM_EXTRACTION_PROMPT_EN = `You are a professional fact-checking assistant. Your task is to extract specific, discrete, falsifiable factual claims from the following text.
 
 Rules:
 - Only include claims that can be verified against external sources (statistics, events, attributions, scientific statements).
 - Each claim must be self-contained (understandable without the surrounding text).
 - Do NOT include opinions, predictions, rhetorical questions, or vague statements.
-- Do NOT include claims that are trivially obvious (e.g. "the sky is blue").
-- Rewrite each claim as a clear, concise sentence. Do not just copy chunks of the source text.
-- Limit to the 2–4 most significant, distinct, and verifiable claims.
-- Return ONLY a valid JSON array of strings. No explanation, no markdown, no extra text.
+- Rewrite each claim as a clear, concise sentence in English.
+- Limit to the 2 to 4 most significant, distinct, and verifiable claims.
+- Return ONLY a valid JSON array of strings in English. No explanation, no markdown format.
 
 Example output:
-["Indonesia's GDP grew 5.1% in Q3 2025.", "The WHO declared mpox a global health emergency in August 2024."]`;
+["Indonesia GDP growth reached 5.1% in Q3 2025.", "WHO declared mpox a global health emergency in August 2024."]`;
 
 /**
  * Uses the configured LLM to extract checkable claims from text.
  * @param {string} text  The article body or transcript chunk.
+ * @param {'id'|'en'} [lang='id']
  * @returns {Promise<string[]>}  Array of claim strings.
  */
-export async function extractClaims(text) {
+export async function extractClaims(text, lang = 'id') {
   const truncated = text.length > 12000 ? text.slice(0, 12000) + '\n[…text truncated…]' : text;
-  const prompt = CLAIM_EXTRACTION_PROMPT + `\n\nText to analyze:\n"""\n${truncated}\n"""`;
+  const basePrompt = lang === 'en' ? CLAIM_EXTRACTION_PROMPT_EN : CLAIM_EXTRACTION_PROMPT_ID;
+  const label = lang === 'en' ? 'Text to analyze' : 'Teks yang dianalisis';
+  const prompt = basePrompt + `\n\n${label}:\n"""\n${truncated}\n"""`;
 
   const content = await callLLM(prompt, 0.2, 2048);
 
@@ -199,7 +214,6 @@ export async function extractClaims(text) {
     if (!Array.isArray(claims) || claims.length === 0) {
       throw new Error('Parsed result is not a non-empty array.');
     }
-    // Sanity filter: drop anything under 10 chars, limit to top 3 claims per chunk
     const filtered = claims.filter((c) => typeof c === 'string' && c.trim().length >= 10);
     return filtered.slice(0, 3);
   } catch (parseErr) {
@@ -225,7 +239,6 @@ export async function extractClaims(text) {
 export async function retrieveEvidence(claim) {
   const { tavilyKey } = await getSettings();
 
-  // No personal key: go through the proxy, which holds one server-side.
   if (!tavilyKey) {
     return retrieveEvidenceViaProxy(claim);
   }
@@ -259,7 +272,29 @@ export async function retrieveEvidence(claim) {
 
 // ─── Stage 3: Verdict Generation ─────────────────────────────────────────────
 
-const VERDICT_PROMPT = `You are a rigorous fact-checker. Evaluate the following claim based ONLY on the evidence provided below. Do NOT use your own training knowledge. Ground your verdict strictly in the supplied sources.
+const VERDICT_PROMPT_ID = `Anda adalah seorang pemeriksa fakta yang independen dan teliti. Evaluasi klaim berikut berdasarkan HANYA bukti-bukti yang disediakan di bawah ini. JANGAN menggunakan pengetahuan di luar bukti yang diberikan.
+
+Klaim yang diperiksa:
+"{CLAIM}"
+
+Bukti-bukti sumber:
+{EVIDENCE}
+
+Tuliskan respons Anda HANYA dalam format JSON valid (tanpa blok markdown \`\`\`json, tanpa teks tambahan):
+{
+  "verdict": "True" | "False" | "Misleading" | "Unverified",
+  "explanation": "Penjelasan ringkas 2 sampai 3 kalimat dalam Bahasa Indonesia yang logis dan jelas mengenai alasan verifikasi berdasarkan bukti yang ditemukan.",
+  "confidence": "High" | "Medium" | "Low",
+  "key_sources": ["url1", "url2"]
+}
+
+Aturan Sangat Penting:
+1. Bidang "explanation" WAJIB ditulis sepenuhnya dalam Bahasa Indonesia yang baku, jelas, dan profesional.
+2. Bidang "verdict" WAJIB memilih salah satu dari nilai persis berikut: "True", "False", "Misleading", atau "Unverified".
+3. Bidang "confidence" WAJIB memilih salah satu dari: "High", "Medium", atau "Low".
+4. Sertakan URL sumber utama yang relevan pada bidang "key_sources".`;
+
+const VERDICT_PROMPT_EN = `You are a rigorous, independent fact-checker. Evaluate the following claim based ONLY on the evidence provided below. Do NOT use your own training knowledge. Ground your verdict strictly in the supplied sources.
 
 Claim:
 "{CLAIM}"
@@ -270,24 +305,25 @@ Evidence:
 Respond with ONLY valid JSON (no markdown fences, no extra text):
 {
   "verdict": "True" | "False" | "Misleading" | "Unverified",
-  "explanation": "2–3 sentence explanation of your reasoning, referencing specific sources",
+  "explanation": "Write a 2 to 3 sentence explanation of your reasoning in clear, natural English, referencing specific sources",
   "confidence": "High" | "Medium" | "Low",
   "key_sources": ["url1", "url2"]
 }
 
-Verdict definitions:
-- True: the claim is well-supported by the evidence.
-- False: the evidence clearly contradicts the claim.
-- Misleading: the claim contains a grain of truth but omits critical context, exaggerates, or distorts.
-- Unverified: the evidence is insufficient to confirm or deny the claim.`;
+Important:
+1. Write the "explanation" value in clear English.
+2. Keep "verdict" strictly as one of: "True", "False", "Misleading", or "Unverified".
+3. Keep "confidence" strictly as one of: "High", "Medium", or "Low".
+4. Include relevant source URLs in "key_sources".`;
 
 /**
- * Generates a grounded verdict for a single claim using MiniMax M3.
+ * Generates a grounded verdict for a single claim.
  * @param {string} claim
  * @param {Array<{title: string, url: string, snippet: string}>} evidence
+ * @param {'id'|'en'} [lang='id']
  * @returns {Promise<{verdict: string, explanation: string, confidence: string, key_sources: string[]}>}
  */
-export async function generateVerdict(claim, evidence) {
+export async function generateVerdict(claim, evidence, lang = 'id') {
   const evidenceText =
     evidence.length > 0
       ? evidence
@@ -295,7 +331,8 @@ export async function generateVerdict(claim, evidence) {
           .join('\n\n')
       : '(No evidence was found for this claim.)';
 
-  const prompt = VERDICT_PROMPT.replace('{CLAIM}', claim).replace('{EVIDENCE}', evidenceText);
+  const basePrompt = lang === 'en' ? VERDICT_PROMPT_EN : VERDICT_PROMPT_ID;
+  const prompt = basePrompt.replace('{CLAIM}', claim).replace('{EVIDENCE}', evidenceText);
 
   const content = await callLLM(prompt, 0.1, 1024);
 
@@ -307,7 +344,7 @@ export async function generateVerdict(claim, evidence) {
     }
     return {
       verdict: verdict.verdict,
-      explanation: verdict.explanation || 'No explanation provided.',
+      explanation: verdict.explanation || (lang === 'en' ? 'No explanation provided.' : 'Tidak ada penjelasan yang diberikan.'),
       confidence: verdict.confidence || 'Low',
       key_sources: Array.isArray(verdict.key_sources) ? verdict.key_sources : [],
     };
@@ -315,7 +352,7 @@ export async function generateVerdict(claim, evidence) {
     console.warn('[Aletheia] Failed to parse verdict JSON:', parseErr, content);
     return {
       verdict: 'Unverified',
-      explanation: 'Could not parse the fact-check result. Raw response: ' + content.slice(0, 200),
+      explanation: (lang === 'en' ? 'Could not parse the fact-check result.' : 'Tidak dapat memproses hasil pemeriksaan fakta.'),
       confidence: 'Low',
       key_sources: [],
     };

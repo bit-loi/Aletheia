@@ -22,13 +22,21 @@
             <p class="tagline">AI Fact-Checker</p>
           </div>
         </div>
-        <div class="theme-toggle-container">
-          <span class="theme-label" aria-hidden="true">DARK</span>
-          <span class="theme-switch">
-            <input type="checkbox" id="theme-toggle" aria-label="Use light theme">
-            <span class="slider"></span>
-          </span>
-          <span class="theme-label" aria-hidden="true">LIGHT</span>
+        <div class="header-controls">
+          <!-- Language Segmented Control -->
+          <div class="lang-segmented-control" role="group" aria-label="Language">
+            <button type="button" id="lang-btn-id" class="lang-segment active">ID</button>
+            <button type="button" id="lang-btn-en" class="lang-segment">EN</button>
+          </div>
+          <!-- Theme Toggle -->
+          <div class="theme-toggle-container">
+            <span class="theme-label" aria-hidden="true">DARK</span>
+            <span class="theme-switch">
+              <input type="checkbox" id="theme-toggle" aria-label="Use light theme">
+              <span class="slider"></span>
+            </span>
+            <span class="theme-label" aria-hidden="true">LIGHT</span>
+          </div>
         </div>
       </div>
     </header>
@@ -37,23 +45,23 @@
       <div class="connection-status" id="connection-status" role="status">
         <span class="connection-status__dot" aria-hidden="true"></span>
         <div>
-          <div class="connection-status__title" id="connection-title">Connecting to secure proxy…</div>
-          <div class="connection-status__detail" id="connection-detail">Checking shared services.</div>
+          <div class="connection-status__title" id="connection-title">Menghubungkan ke proxy aman…</div>
+          <div class="connection-status__detail" id="connection-detail">Memeriksa layanan bersama.</div>
         </div>
       </div>
 
       <section class="mode-card" aria-labelledby="mode-title">
-        <div class="mode-card__label">Current tab</div>
-        <h2 id="mode-title">Checking this page…</h2>
-        <p id="mode-description">Aletheia is detecting the best fact-check mode.</p>
+        <div class="mode-card__label" id="mode-card-label">Halaman saat ini</div>
+        <h2 id="mode-title">Mendeteksi halaman…</h2>
+        <p id="mode-description">Aletheia sedang mendeteksi mode verifikasi terbaik.</p>
       </section>
 
-      <button id="start-fact-check-btn" class="btn-primary" disabled>Checking tab…</button>
+      <button id="start-fact-check-btn" class="btn-primary" disabled>Mendeteksi tab…</button>
       <p id="action-status" class="action-status" role="status" aria-live="polite"></p>
     </main>
 
     <footer class="popup-footer">
-      <p id="mode-hint">Open an article or YouTube video, then start a check.</p>
+      <p id="mode-hint">Buka artikel berita atau video YouTube, lalu mulai verifikasi.</p>
     </footer>
   </div>
 
