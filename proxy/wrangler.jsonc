@@ -25,6 +25,11 @@
     // Change here rather than in code.
     "GEMINI_MODEL": "gemini-3.1-flash-lite",
 
+    // Transcription needs native generateContent with inline audio, which the
+    // lite text model does not serve. Kept separate so the text chain can move
+    // without breaking mobile audio.
+    "GEMINI_TRANSCRIBE_MODEL": "gemini-2.5-flash",
+
     // Pinned free multilingual fallback. Free availability can change, so this
     // stays configurable without a source change.
     "OPENROUTER_MODEL": "google/gemma-4-26b-a4b-it:free",
@@ -56,4 +61,5 @@
   //   wrangler secret put OPENROUTER_API_KEY
   //   wrangler secret put GROQ_API_KEY     (optional, third in the chain)
   //   wrangler secret put TAVILY_API_KEY
+  //   wrangler secret put MOBILE_API_TOKEN  (mobile app auth; no Origin header)
 }

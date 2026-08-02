@@ -6,16 +6,19 @@
  * buffer, get the complete transcript back. This is simpler, more accurate for
  * short clips, and avoids managing a WebSocket connection during app backgrounding.
  *
- * The audio is sent as base64-encoded data to the proxy's /v1/chat endpoint
- * using Gemini's multimodal input format.
+ * The audio is base64-encoded and posted to the proxy's /v1/transcribe
+ * endpoint, which forwards it to Gemini's native generateContent as
+ * inline_data. It does not go through /v1/chat: that route speaks the
+ * OpenAI-compatible chat shape, which has no audio surface on Gemini, and its
+ * 128 KB body cap is far below the ~640 KB a 15 s clip base64s to.
  */
 
 import { CONFIG } from './config';
 
 /**
- * Transcribe audio data using Gemini's multimodal capabilities via the proxy.
+ * Transcribe a recorded clip through the proxy.
  *
- * @param audioBase64 - Base64-encoded audio data (WAV, MP3, or raw PCM)
+ * @param audioBase64 - Base64-encoded audio data (WAV or MP3)
  * @param mimeType - MIME type of the audio (e.g., 'audio/wav', 'audio/mp3')
  * @returns The transcript text
  */
@@ -26,16 +29,7 @@ export async function transcribeAudio(
   const base = (CONFIG.PROXY_URL || '').replace(/\/$/, '');
   if (!base) throw new Error('The Aletheia proxy is not configured.');
 
-  // Use the Gemini API directly for audio transcription since the proxy's
-  // /v1/chat endpoint speaks the OpenAI chat format which doesn't support
-  // inline audio. We call Gemini's native generateContent endpoint through
-  // the proxy's Gemini key.
-  //
-  // For now, we use the proxy's /v1/chat endpoint with a text-based prompt
-  // that instructs the model to transcribe. In production, this would use
-  // the multimodal endpoint directly.
-
-  const res = await fetch(`${base}/v1/chat`, {
+  const res = await fetch(`${base}/v1/transcribe`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -43,32 +37,14 @@ export async function transcribeAudio(
         ? { Authorization: `Bearer ${CONFIG.MOBILE_API_TOKEN}` }
         : {}),
     },
-    body: JSON.stringify({
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: 'Transcribe the following audio exactly as spoken. Return ONLY the raw transcript text, no formatting, no timestamps, no speaker labels. If the audio is unclear or silent, return "[inaudible]".',
-            },
-            {
-              type: 'input_audio',
-              input_audio: {
-                data: audioBase64,
-                format: mimeType.includes('wav') ? 'wav' : 'mp3',
-              },
-            },
-          ],
-        },
-      ],
-      temperature: 0.0,
-      max_tokens: 4096,
-    }),
+    body: JSON.stringify({ audio: audioBase64, mimeType }),
   });
 
   if (res.status === 429) {
     throw new Error('Aletheia is busy right now. Try again shortly.');
+  }
+  if (res.status === 413) {
+    throw new Error('The recording is too long to send. Try a shorter clip.');
   }
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
@@ -76,9 +52,10 @@ export async function transcribeAudio(
   }
 
   const data = await res.json();
-  const transcript = (data as any).content?.trim();
+  const transcript = ((data as any).transcript || '').trim();
 
-  if (!transcript || transcript === '[inaudible]') {
+  // Silence is a real outcome, not a failure to hide. Say what to change.
+  if (!transcript || (data as any).inaudible) {
     throw new Error(
       'Could not transcribe the audio. Make sure the phone speaker is not muted ' +
         'and headphones are disconnected.',
