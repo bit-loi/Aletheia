@@ -38,8 +38,8 @@ Real-time misinformation verification for TikTok, Instagram Reels, and YouTube �
 ## Quick Start (Android)
 
 ### Prerequisites
-- Node.js 20+
-- Android Studio with SDK installed
+- Node.js 22.11+ (enforced by `engines` in package.json — React Native 0.86 needs it)
+- Android Studio with SDK installed, and `ANDROID_HOME` exported
 - Physical Android device (USB debugging enabled) or emulator
 - `adb` in your PATH
 
@@ -51,18 +51,24 @@ cd mobile
 # Install dependencies
 npm install
 
-# Set your mobile API token in src/config.ts
-# (or set MOBILE_API_TOKEN env var before building)
+# Create the local secrets file. It is gitignored: nothing in this directory
+# should ever hold a real credential.
+cp src/config.env.example.ts src/config.env.ts
 
-# Deploy the Worker with the mobile token secret:
+# Generate a token and give the SAME value to both sides.
+openssl rand -hex 32          # paste into MOBILE_API_TOKEN in src/config.env.ts
+
 cd ../proxy
-npx wrangler secret put MOBILE_API_TOKEN
-# Enter a random string when prompted
+npx wrangler secret put MOBILE_API_TOKEN   # paste the same value
+npx wrangler deploy                        # the app 403s until this is deployed
 
 # Run on Android
 cd ../mobile
 npx react-native run-android
 ```
+
+The token must match character-for-character or every request comes back
+`403 {"error":"origin not allowed"}`.
 
 ### First Run
 1. App opens with a **Listen** button
@@ -81,8 +87,9 @@ mobile/
 ├── App.tsx                    # Main UI (Listen button + Results view)
 ├── src/
 │   ├── config.ts              # Backend URLs, auth token, recording settings
+│   ├── config.env.example.ts  # Template — copy to config.env.ts (gitignored)
 │   ├── audioCapture.ts        # Microphone recording (wraps native module)
-│   ├── transcribe.ts          # Batch audio→text via Gemini (through proxy)
+│   ├── transcribe.ts          # Batch audio→text via POST /v1/transcribe
 │   ├── verifyContent.ts       # Port of pipeline.js (extractClaims→retrieveEvidence→generateVerdict)
 │   ├── mergeContext.ts        # Combines audio transcript + OCR text (Phase 2)
 │   ├── screenCapture.ts       # Screen recording for OCR (Phase 2 stub)
@@ -155,6 +162,20 @@ npx wrangler secret put MOBILE_API_TOKEN
 Mobile clients authenticate via `Authorization: Bearer <token>` header instead of the Chrome extension's `Origin` header (which React Native's `fetch()` does not send).
 
 The existing Chrome extension path is completely unchanged — the Worker checks for a valid bearer token only if the origin check fails.
+
+### Endpoints the app uses
+
+| Endpoint | Called by | Purpose |
+|---|---|---|
+| `POST /v1/transcribe` | `transcribe.ts` | base64 audio clip → transcript |
+| `POST /v1/verify-mobile` | `verifyContent.ts` | transcript → claims → evidence → verdict, in one round trip |
+| `POST /v1/chat`, `POST /v1/search` | `verifyContent.ts` | step-by-step fallback if `/v1/verify-mobile` fails |
+
+`/v1/transcribe` exists because audio cannot go through `/v1/chat`: that route
+speaks the OpenAI-compatible chat shape, which has no audio surface on Gemini,
+and its 128 KB body cap is far below the ~640 KB a 15 s clip base64s to. The
+transcribe route calls Gemini's native `generateContent` with `inline_data` and
+carries its own 2 MB cap.
 
 ## Interview Talking Points
 
