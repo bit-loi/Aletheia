@@ -127,6 +127,83 @@ export function isRecording(): boolean {
   return currentCallbacks !== null;
 }
 
+// ─── Continuous (auto-listen) capture ────────────────────────────────────────
+
+interface ContinuousCallbacks {
+  /** Fired once per finished window, with the path to its WAV file. */
+  onChunk: (filePath: string) => void;
+  onError: (error: string) => void;
+  onAmplitude?: (amplitude: number) => void;
+}
+
+let continuousCallbacks: ContinuousCallbacks | null = null;
+let chunkSubscription: any = null;
+let continuousAmplitudeSubscription: any = null;
+
+/**
+ * Start auto-listen: the microphone stays open and a finished WAV arrives
+ * every CONFIG.MAX_RECORD_DURATION_MS, so the next window is already being
+ * captured while the previous one is still being transcribed.
+ *
+ * This is the mobile equivalent of the extension's continuous tab-audio
+ * capture — one start, then results keep coming until stopped.
+ */
+export async function startContinuousRecording(
+  callbacks: ContinuousCallbacks,
+): Promise<void> {
+  if (continuousCallbacks) {
+    throw new Error('Auto-listen is already running.');
+  }
+
+  continuousCallbacks = callbacks;
+
+  const emitter = new NativeEventEmitter(AudioRecorderModule);
+  chunkSubscription = emitter.addListener('onRecordingChunk', (event: {filePath: string}) => {
+    if (event?.filePath) continuousCallbacks?.onChunk(event.filePath);
+  });
+  continuousAmplitudeSubscription = emitter.addListener('onAmplitude', (event) => {
+    continuousCallbacks?.onAmplitude?.(event.amplitude);
+  });
+
+  try {
+    await AudioRecorderModule.startContinuousRecording({
+      maxDurationMs: CONFIG.MAX_RECORD_DURATION_MS,
+      sampleRate: 16000,
+      channels: 1,
+      encoding: 'pcm_16bit',
+      outputFormat: 'wav',
+    });
+  } catch (err: any) {
+    await stopContinuousRecording();
+    callbacks.onError(`Failed to start auto-listen: ${err.message}`);
+    throw err;
+  }
+}
+
+/** Stop auto-listen. Safe to call when it is not running. */
+export async function stopContinuousRecording(): Promise<void> {
+  chunkSubscription?.remove();
+  chunkSubscription = null;
+  continuousAmplitudeSubscription?.remove();
+  continuousAmplitudeSubscription = null;
+  continuousCallbacks = null;
+
+  try {
+    await AudioRecorderModule.stopContinuousRecording();
+  } catch {}
+}
+
+export function isContinuousRecording(): boolean {
+  return continuousCallbacks !== null;
+}
+
+/** Drop a chunk file once its audio has been uploaded. */
+export async function deleteRecording(filePath: string): Promise<void> {
+  try {
+    await AudioRecorderModule.deleteRecording(filePath);
+  } catch {}
+}
+
 /**
  * Check if headphones (wired or Bluetooth) are connected.
  *

@@ -1,7 +1,7 @@
 /**
- * useListenSession.ts: Custom hook that orchestrates the full Listen flow.
+ * useListenSession.ts: Custom hook that orchestrates the Listen flows.
  *
- * This is the glue between the UI and the pipeline modules:
+ * One-shot session (startSession):
  *   1. Check headphones → warn if connected
  *   2. Request mic permission
  *   3. Start recording (15s auto-stop)
@@ -9,23 +9,35 @@
  *   5. Merge context (audio + OCR in Phase 2)
  *   6. Run verification pipeline
  *   7. Return results to UI
+ *
+ * Auto-listen (startAutoSession) is what the extension does on desktop: start
+ * once, then verdicts keep arriving with no further taps. The microphone stays
+ * open natively and each finished 15 s window is transcribed and verified
+ * while the next one is already being recorded.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   expandWidget,
   startRecording,
   stopRecording,
+  startContinuousRecording,
+  stopContinuousRecording,
+  deleteRecording,
   isHeadphonesConnected,
   requestMicrophonePermission,
   updateWidgetStatus,
   updateWidgetVerdict,
   type RecordingState,
 } from './audioCapture';
-import { transcribeAudio, fileToBase64 } from './transcribe';
+import { transcribeAudio, transcribeAudioDetailed, fileToBase64 } from './transcribe';
 import { mergeContext, type MergedContext } from './mergeContext';
 import {
   verifyTranscript,
+  extractClaims,
+  retrieveEvidence,
+  generateVerdict,
+  type ClaimResult,
   type VerificationResult,
 } from './verifyContent';
 
@@ -36,6 +48,14 @@ export type SessionPhase =
   | 'verifying'
   | 'done'
   | 'error';
+
+/** Consecutive failed windows before auto-listen gives up rather than looping on a broken proxy. */
+const MAX_CONSECUTIVE_FAILURES = 3;
+
+/** Claim text → cache key, mirroring the extension's normalizeClaim. */
+function normalizeClaim(claim: string): string {
+  return claim.toLowerCase().trim().replace(/\s+/g, ' ');
+}
 
 export interface ListenSessionState {
   phase: SessionPhase;
@@ -51,6 +71,10 @@ export interface ListenSessionState {
   result: VerificationResult | null;
   /** Error message if something went wrong. */
   error: string | null;
+  /** True while auto-listen is running (mic open, verdicts arriving on their own). */
+  auto: boolean;
+  /** Number of audio windows processed in the current auto-listen run. */
+  windowsProcessed: number;
 }
 
 export function useListenSession() {
@@ -62,6 +86,8 @@ export function useListenSession() {
     context: null,
     result: null,
     error: null,
+    auto: false,
+    windowsProcessed: 0,
   });
 
   const recordingRef = useRef(false);
@@ -200,10 +226,271 @@ export function useListenSession() {
     }
   }, [checkHeadphones, updateState]);
 
+  // ─── Auto-listen ───────────────────────────────────────────────────────────
+
+  const autoRef = useRef(false);
+  const langRef = useRef<'id' | 'en'>('id');
+  /** A window is being transcribed/verified right now. */
+  const busyRef = useRef(false);
+  /** Newest window that arrived while busy. Older backlog is dropped. */
+  const pendingChunkRef = useRef<string | null>(null);
+  /** Claims already verified in this run, so a repeated claim costs nothing. */
+  const seenClaimsRef = useRef<Set<string>>(new Set());
+  const lastTranscriptRef = useRef('');
+  const failuresRef = useRef(0);
+
+  const stopAutoSession = useCallback(async () => {
+    autoRef.current = false;
+    busyRef.current = false;
+    if (pendingChunkRef.current) {
+      deleteRecording(pendingChunkRef.current);
+      pendingChunkRef.current = null;
+    }
+    await stopContinuousRecording();
+    updateWidgetStatus(langRef.current === 'en' ? 'Aletheia • Stopped' : 'Aletheia • Berhenti');
+    setState((prev) => ({
+      ...prev,
+      auto: false,
+      amplitude: 0,
+      statusText: '',
+      phase: prev.result && prev.result.claims.length > 0 ? 'done' : 'idle',
+    }));
+  }, []);
+
+  /**
+   * Transcribe and verify one recorded window.
+   *
+   * Everything here is best-effort: silence, a window with no factual claims,
+   * and a claim already checked earlier in the run are all normal outcomes
+   * that must leave the loop running.
+   */
+  const processChunk = useCallback(async (filePath: string) => {
+    const lang = langRef.current;
+    const say = (en: string, id: string) => (lang === 'en' ? en : id);
+
+    if (busyRef.current) {
+      // Verification is slower than recording, so windows queue up. Keep only
+      // the newest — falling further behind live audio helps nobody.
+      const dropped = pendingChunkRef.current;
+      if (dropped) deleteRecording(dropped);
+      pendingChunkRef.current = filePath;
+      return;
+    }
+
+    busyRef.current = true;
+
+    try {
+      updateState({ phase: 'transcribing', statusText: say('Transcribing audio…', 'Transkripsi audio…') });
+      updateWidgetStatus(say('Transcribing audio…', 'Transkripsi audio…'));
+
+      const audioBase64 = await fileToBase64(filePath);
+      await deleteRecording(filePath);
+
+      const { transcript, inaudible } = await transcribeAudioDetailed(audioBase64, 'audio/wav');
+      failuresRef.current = 0;
+      if (!autoRef.current) return;
+
+      setState((prev) => ({ ...prev, windowsProcessed: prev.windowsProcessed + 1 }));
+
+      if (!transcript || inaudible) {
+        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
+        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+        return;
+      }
+
+      // Repeating the same window (a paused video, a looping clip) would burn
+      // quota for a result already on screen.
+      if (normalizeClaim(transcript) === lastTranscriptRef.current) {
+        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
+        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+        return;
+      }
+      lastTranscriptRef.current = normalizeClaim(transcript);
+
+      updateState({ phase: 'verifying', statusText: say('Extracting claims…', 'Mengekstrak klaim…') });
+      updateWidgetStatus(say('Extracting claims…', 'Mengekstrak klaim…'));
+
+      // The per-claim path is used rather than /v1/verify-mobile so already
+      // seen claims can be skipped before any search or verdict call is made.
+      const claims = await extractClaims(transcript, lang);
+      if (!autoRef.current) return;
+
+      const fresh = claims.filter((c) => !seenClaimsRef.current.has(normalizeClaim(c)));
+      if (fresh.length === 0) {
+        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
+        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+        return;
+      }
+
+      for (let i = 0; i < fresh.length; i++) {
+        if (!autoRef.current) return;
+        const claim = fresh[i];
+        seenClaimsRef.current.add(normalizeClaim(claim));
+
+        updateState({
+          statusText: say(`Checking claim ${i + 1} of ${fresh.length}…`, `Memeriksa klaim ${i + 1} dari ${fresh.length}…`),
+        });
+        updateWidgetStatus(
+          say(`Checking claim ${i + 1} of ${fresh.length}…`, `Memeriksa klaim ${i + 1} dari ${fresh.length}…`),
+        );
+
+        const evidence = await retrieveEvidence(claim);
+        const verdict = await generateVerdict(claim, evidence, lang);
+        if (!autoRef.current) return;
+
+        const claimResult: ClaimResult = { claim, verdict };
+
+        // Each verdict is pushed as it lands, so the card feed fills up while
+        // the next window is still recording.
+        updateWidgetVerdict(
+          JSON.stringify({
+            claim: claimResult.claim,
+            verdict: verdict.verdict,
+            explanation: verdict.explanation,
+            confidence: verdict.confidence,
+            key_sources: verdict.key_sources,
+          }),
+        );
+
+        setState((prev) => ({
+          ...prev,
+          result: {
+            claims: [...(prev.result?.claims ?? []), claimResult],
+            rawTranscript: prev.result
+              ? `${prev.result.rawTranscript}\n${transcript}`.trim()
+              : transcript,
+          },
+        }));
+      }
+
+      if (autoRef.current) {
+        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
+        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+      }
+    } catch (err: any) {
+      failuresRef.current += 1;
+      if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) {
+        // Looping against a proxy that keeps failing just burns battery and
+        // hides the reason, so surface it and stop.
+        await stopAutoSession();
+        updateState({
+          phase: 'error',
+          error: err.message || say('Auto-listen stopped after repeated failures.', 'Mode otomatis berhenti setelah beberapa kegagalan.'),
+        });
+        return;
+      }
+      updateState({ phase: 'recording', statusText: say('Retrying…', 'Mencoba lagi…') });
+      updateWidgetStatus(say('Retrying…', 'Mencoba lagi…'));
+    } finally {
+      busyRef.current = false;
+      const queued = pendingChunkRef.current;
+      pendingChunkRef.current = null;
+      if (queued) {
+        if (autoRef.current) processChunk(queued);
+        else deleteRecording(queued);
+      }
+    }
+  }, [updateState, stopAutoSession]);
+
+  /**
+   * Start auto-listen: one call, then verdicts keep arriving until stopped.
+   */
+  const startAutoSession = useCallback(async (lang: 'id' | 'en' = 'id') => {
+    if (autoRef.current) return;
+    langRef.current = lang;
+    const say = (en: string, id: string) => (lang === 'en' ? en : id);
+
+    seenClaimsRef.current = new Set();
+    lastTranscriptRef.current = '';
+    failuresRef.current = 0;
+
+    updateState({
+      phase: 'idle',
+      statusText: '',
+      amplitude: 0,
+      context: null,
+      result: null,
+      error: null,
+      auto: false,
+      windowsProcessed: 0,
+    });
+
+    const headphones = await checkHeadphones();
+    if (headphones) {
+      updateWidgetStatus(say('Aletheia • Headphones detected', 'Aletheia • Headphone terdeteksi'));
+      updateState({
+        phase: 'error',
+        error: say(
+          'Headphones detected! Unplug headphones or disconnect Bluetooth audio so TikTok/YouTube audio plays through the phone speaker.',
+          'Headphone terdeteksi! Harap lepaskan headphone agar audio TikTok/YouTube keluar dari speaker HP.',
+        ),
+      });
+      return;
+    }
+
+    const granted = await requestMicrophonePermission();
+    if (!granted) {
+      updateWidgetStatus(say('Aletheia • Mic permission required', 'Aletheia • Izin mikrofon diperlukan'));
+      updateState({
+        phase: 'error',
+        error: say(
+          'Microphone permission is required to listen and verify audio.',
+          'Izin mikrofon diperlukan untuk mendengarkan dan memverifikasi audio.',
+        ),
+      });
+      return;
+    }
+
+    autoRef.current = true;
+    updateState({ phase: 'recording', auto: true, statusText: say('Listening…', 'Mendengarkan…') });
+    updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+    expandWidget();
+
+    try {
+      await startContinuousRecording({
+        onChunk: (path) => {
+          if (!autoRef.current) {
+            deleteRecording(path);
+            return;
+          }
+          processChunk(path);
+        },
+        onError: (message) => {
+          updateState({ phase: 'error', auto: false, error: message });
+        },
+        onAmplitude: (amp) => {
+          updateState({ amplitude: amp });
+        },
+      });
+    } catch (err: any) {
+      autoRef.current = false;
+      updateWidgetStatus(say('Aletheia • Check failed', 'Aletheia • Gagal memeriksa'));
+      updateState({
+        phase: 'error',
+        auto: false,
+        error: err.message || say('Could not start auto-listen.', 'Tidak dapat memulai mode otomatis.'),
+      });
+    }
+  }, [checkHeadphones, processChunk, updateState]);
+
+  // Leaving the screen must not leave the microphone open.
+  useEffect(() => {
+    return () => {
+      if (autoRef.current) {
+        autoRef.current = false;
+        stopContinuousRecording();
+      }
+    };
+  }, []);
+
   /**
    * Cancel the current session (stop recording if active).
    */
   const cancelSession = useCallback(async () => {
+    if (autoRef.current) {
+      await stopAutoSession();
+      return;
+    }
     if (recordingRef.current) {
       await stopRecording();
       recordingRef.current = false;
@@ -214,7 +501,7 @@ export function useListenSession() {
       amplitude: 0,
       error: null,
     });
-  }, [updateState]);
+  }, [updateState, stopAutoSession]);
 
   /**
    * Reset to idle state after viewing results.
@@ -227,12 +514,17 @@ export function useListenSession() {
       context: null,
       result: null,
       error: null,
+      windowsProcessed: 0,
     });
+    seenClaimsRef.current = new Set();
+    lastTranscriptRef.current = '';
   }, [updateState]);
 
   return {
     state,
     startSession,
+    startAutoSession,
+    stopAutoSession,
     cancelSession,
     resetSession,
     checkHeadphones,

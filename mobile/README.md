@@ -8,17 +8,41 @@ Real-time misinformation verification for TikTok, Instagram Reels, and YouTube �
 ┌─────────────────────────────────────────────────────────┐
 │  User hears a suspicious claim on TikTok / IG / YouTube │
 │                                                         │
-│  1. Open Aletheia → tap the Listen button               │
+│  1. Open Aletheia → enable the floating widget, or tap  │
+│     START AUTO FACT CHECK                               │
 │  2. Switch back to the social media app                 │
 │  3. Audio plays through phone speaker                   │
-│  4. Phone mic captures it (15 seconds)                  │
-│  5. Recording auto-stops                                │
+│  4. Phone mic captures it in 15-second windows          │
+│  5. The mic stays open — windows keep coming            │
 │  6. Audio → Gemini batch transcription → transcript     │
 │  7. Transcript → claim extraction → evidence search     │
 │     → grounded verdict (True/False/Misleading/Unverified)│
-│  8. Results shown when user returns to Aletheia         │
+│  8. Each verdict appears in the floating card as it     │
+│     lands, while the next window is already recording   │
 └─────────────────────────────────────────────────────────┘
 ```
+
+### Auto-listen
+
+Like the desktop extension, mobile starts once and keeps going: the native
+recorder holds a single `AudioRecord` open and emits a finished WAV every 15
+seconds, so the next window is captured while the previous one is still in
+transcription. It is not a JS loop over the one-shot path — that would leave
+the microphone closed for the whole round trip (missing most of what plays),
+and restarting a foreground service from inside TikTok hits the Android 12+
+background-start restriction.
+
+Two things keep a continuous run from burning the shared quota:
+
+- windows that transcribe to silence, or to the same text as the previous
+  window, are never sent on to claim extraction;
+- claims already checked in the run are skipped before any search or verdict
+  call, which is why auto-listen uses the per-claim path rather than
+  `/v1/verify-mobile`.
+
+Three consecutive failed windows stop the run and surface the reason rather
+than looping against a broken proxy. Stop manually from the in-app button or
+the "STOP LISTENING" action on the recording notification.
 
 ### Architecture
 
@@ -71,14 +95,15 @@ The token must match character-for-character or every request comes back
 `403 {"error":"origin not allowed"}`.
 
 ### First Run
-1. App opens with a **Listen** button
+1. App opens with a **START AUTO FACT CHECK** button
 2. Grant microphone permission when prompted
 3. If headphones are connected, a warning banner appears — **unplug them**
-4. Tap **Listen**, then switch to TikTok/YouTube
+4. Enable the floating widget (this also starts auto-listening), or tap the
+   button, then switch to TikTok/YouTube
 5. Audio plays through the phone speaker → microphone captures it
-6. After 15 seconds, recording stops automatically
-7. The app transcribes and verifies in the background
-8. Return to Aletheia to see the results
+6. Verdict cards appear in the floating card as claims are checked; no further
+   taps are needed
+7. Stop from the in-app button or the notification's **STOP LISTENING** action
 
 ## Project Structure
 

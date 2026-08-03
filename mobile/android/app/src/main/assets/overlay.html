@@ -695,15 +695,17 @@
   dragHandle.addEventListener('pointercancel', endDrag);
 
   // ── Controls ─────────────────────────────────────────────────────────────
+  // The bridge method is onCollapse, matching the onDragStart/Move/End naming.
+  // Calling a name the bridge does not expose fails silently in a WebView.
   document.getElementById('al-close').addEventListener('click', function () {
-    if (native()) native().collapse();
+    if (native()) native().onCollapse();
   });
 
   // Initial empty state (extension's renderEmptyState).
   claimsFeed.innerHTML =
     '<div class="al-placeholder">' +
       '<div class="al-placeholder__title">Nothing checked yet</div>' +
-      '<div class="al-placeholder__body">Tap the bubble to start a listen session, then verify claims against trusted sources.</div>' +
+      '<div class="al-placeholder__body">Aletheia is listening to what is playing. Verdicts appear here as claims are checked against trusted sources.</div>' +
     '</div>';
 
   // Exposed to Kotlin via evaluateJavascript:
