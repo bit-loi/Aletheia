@@ -82,9 +82,13 @@ class FloatingWidgetService : Service() {
     private var initialTouchY = 0f
     private var isClick = true
 
-    // Pinch-to-minimize state for the expanded card.
+    // Pinch-to-minimize & zoom state for the expanded card.
     private var scaleDetector: ScaleGestureDetector? = null
     private var cumulativeScale = 1.0f
+    private var initialGestureScale = 1.0f
+    private var currentCardScale = 1.0f
+    private var isPinching = false
+    private var isCollapsing = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -182,7 +186,8 @@ class FloatingWidgetService : Service() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 overlayType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -190,7 +195,9 @@ class FloatingWidgetService : Service() {
                 y = (200 * density).toInt()
             }
 
-            val root = FrameLayout(this)
+            val root = FrameLayout(this).apply {
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            }
             container = root
 
             // 1. Collapsed bubble: circular logo button, natively draggable.
@@ -231,14 +238,51 @@ class FloatingWidgetService : Service() {
             //    the WebView can consume them for zoom. Single-finger touches
             //    pass through normally so the WebView's scroll, tap, and close
             //    button all keep working.
+            var isCardDragging = false
+
             val card = object : FrameLayout(this@FloatingWidgetService) {
                 override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                     if (ev.pointerCount >= 2) {
+                        isCardDragging = false
                         scaleDetector?.onTouchEvent(ev)
                         return true
                     }
+                    if (isPinching && (ev.action == MotionEvent.ACTION_UP || ev.action == MotionEvent.ACTION_CANCEL)) {
+                        finishPinchGesture()
+                        return true
+                    }
+
+                    when (ev.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            initialX = wmParams?.x ?: 0
+                            initialY = wmParams?.y ?: 0
+                            initialTouchX = ev.rawX
+                            initialTouchY = ev.rawY
+                            isCardDragging = false
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val dx = (ev.rawX - initialTouchX).toInt()
+                            val dy = (ev.rawY - initialTouchY).toInt()
+                            if (!isCardDragging && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+                                isCardDragging = true
+                            }
+                            if (isCardDragging) {
+                                moveWindow(initialX + dx, initialY + dy)
+                                return true
+                            }
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            if (isCardDragging) {
+                                isCardDragging = false
+                                return true
+                            }
+                        }
+                    }
+
                     return super.dispatchTouchEvent(ev)
                 }
+            }.apply {
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
             }
             card.visibility = View.GONE
             val cardW = (340 * density).toInt()
@@ -246,28 +290,44 @@ class FloatingWidgetService : Service() {
             root.addView(card, FrameLayout.LayoutParams(cardW, cardH))
             cardContainer = card
 
-            // ScaleGestureDetector for two-finger pinch-to-minimize.
-            // Tracks CUMULATIVE scale (multiplying each incremental factor)
-            // and triggers collapse when the total scale drops below 0.7.
+            // ScaleGestureDetector for two-finger pinch-to-minimize & free resizing.
+            // Interactively resizes the black box card live (0.25x to 1.4x)
+            // while keeping the black box card fully visible at 1.0 alpha.
             scaleDetector = ScaleGestureDetector(
                 this,
                 object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                        if (isCollapsing) return false
+                        isPinching = true
                         cumulativeScale = 1.0f
+                        initialGestureScale = currentCardScale
+                        cardContainer?.let { cardView ->
+                            cardView.pivotX = 0f
+                            cardView.pivotY = 0f
+                            cardView.animate()?.cancel()
+                        }
+                        dragBar?.animate()?.cancel()
+                        bubbleView?.animate()?.cancel()
+                        bubbleClose?.animate()?.cancel()
                         return true
                     }
 
                     override fun onScale(detector: ScaleGestureDetector): Boolean {
+                        if (isCollapsing) return true
                         cumulativeScale *= detector.scaleFactor
-                        if (cumulativeScale < 0.7f) {
-                            collapse()
-                            cumulativeScale = 1.0f
-                        }
+                        val cardView = cardContainer ?: return true
+                        val scale = (initialGestureScale * cumulativeScale).coerceIn(0.25f, 1.4f)
+                        currentCardScale = scale
+
+                        cardView.scaleX = scale
+                        cardView.scaleY = scale
+                        cardView.alpha = 1.0f
+
                         return true
                     }
 
                     override fun onScaleEnd(detector: ScaleGestureDetector) {
-                        cumulativeScale = 1.0f
+                        finishPinchGesture()
                     }
                 }
             )
@@ -363,24 +423,79 @@ class FloatingWidgetService : Service() {
         } catch (_: Exception) {}
     }
 
+    private fun finishPinchGesture() {
+        if (!isPinching) return
+        isPinching = false
+        if (currentCardScale < 0.18f) {
+            collapse()
+        } else {
+            settleCardScale()
+        }
+    }
+
+    private fun settleCardScale() {
+        Handler(Looper.getMainLooper()).post {
+            val card = cardContainer ?: return@post
+            val targetScale = currentCardScale.coerceIn(0.25f, 1.4f)
+            currentCardScale = targetScale
+
+            card.animate()?.cancel()
+            card.animate()
+                .scaleX(targetScale)
+                .scaleY(targetScale)
+                .alpha(1.0f)
+                .setDuration(180L)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                .start()
+        }
+    }
+
     /** Expand the WebView card with a smooth grow animation. */
     fun showCard() {
         Handler(Looper.getMainLooper()).post {
             if (webView == null) {
                 buildWebView()
             }
-            bubbleView?.visibility = View.GONE
-            bubbleClose?.visibility = View.GONE
+            isCollapsing = false
+            isPinching = false
+            currentCardScale = 1.0f
 
             val card = cardContainer
             val bar = dragBar
+            val bubble = bubbleView
+            val close = bubbleClose
 
-            // Start scaled down + transparent, then animate to full size.
+            // Animate bubble shrinking and fading out
+            bubble?.animate()?.cancel()
+            bubble?.animate()
+                ?.scaleX(0.5f)
+                ?.scaleY(0.5f)
+                ?.alpha(0f)
+                ?.setDuration(220L)
+                ?.withEndAction {
+                    bubble.visibility = View.GONE
+                }
+                ?.start()
+
+            close?.animate()?.cancel()
+            close?.animate()
+                ?.scaleX(0.5f)
+                ?.scaleY(0.5f)
+                ?.alpha(0f)
+                ?.setDuration(220L)
+                ?.withEndAction {
+                    close.visibility = View.GONE
+                }
+                ?.start()
+
             if (card != null) {
-                card.scaleX = 0.3f
-                card.scaleY = 0.3f
+                card.pivotX = 0f
+                card.pivotY = 0f
+                card.scaleX = 0.25f
+                card.scaleY = 0.25f
                 card.alpha = 0f
                 card.visibility = View.VISIBLE
+                card.animate()?.cancel()
                 card.animate()
                     .scaleX(1f)
                     .scaleY(1f)
@@ -393,6 +508,7 @@ class FloatingWidgetService : Service() {
             // Fade the drag bar in.
             bar?.alpha = 0f
             bar?.visibility = View.VISIBLE
+            bar?.animate()?.cancel()
             bar?.animate()
                 ?.alpha(1f)
                 ?.setDuration(200L)
@@ -410,30 +526,75 @@ class FloatingWidgetService : Service() {
     fun collapse() {
         Handler(Looper.getMainLooper()).post {
             val card = cardContainer ?: return@post
-            val bar = dragBar
+            if (isCollapsing) return@post
+            isCollapsing = true
+            isPinching = false
+            currentCardScale = 1.0f
 
-            // Animate: scale down to 0 + fade out simultaneously.
+            val bar = dragBar
+            val bubble = bubbleView
+            val close = bubbleClose
+
+            card.pivotX = 0f
+            card.pivotY = 0f
+
+            bubble?.let {
+                if (it.visibility != View.VISIBLE) {
+                    it.visibility = View.VISIBLE
+                    it.alpha = 0f
+                    it.scaleX = 0.5f
+                    it.scaleY = 0.5f
+                }
+                it.animate()?.cancel()
+                it.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .alpha(1f)
+                    .setDuration(280L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                    .start()
+            }
+
+            close?.let {
+                if (it.visibility != View.VISIBLE) {
+                    it.visibility = View.VISIBLE
+                    it.alpha = 0f
+                    it.scaleX = 0.5f
+                    it.scaleY = 0.5f
+                }
+                it.animate()?.cancel()
+                it.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .alpha(1f)
+                    .setDuration(280L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                    .start()
+            }
+
+            // Animate: scale down to 0.25f + fade out simultaneously.
+            card.animate()?.cancel()
             card.animate()
-                .scaleX(0.3f)
-                .scaleY(0.3f)
+                .scaleX(0.25f)
+                .scaleY(0.25f)
                 .alpha(0f)
-                .setDuration(250L)
-                .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                .setDuration(280L)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2.5f))
                 .withEndAction {
-                    card.animate().setListener(null)  // clear to avoid leaks
+                    card.animate()?.setListener(null)  // clear to avoid leaks
                     card.scaleX = 1f
                     card.scaleY = 1f
                     card.alpha = 1f
                     card.visibility = View.GONE
                     bar?.visibility = View.GONE
-                    bubbleView?.visibility = View.VISIBLE
-                    bubbleClose?.visibility = View.VISIBLE
+                    isCollapsing = false
                     try { windowManager?.updateViewLayout(container, wmParams) } catch (_: Exception) {}
                     wmParams?.let { moveWindow(it.x, it.y) }
                 }
                 .start()
 
             // Fade the drag bar out slightly faster.
+            bar?.animate()?.cancel()
             bar?.animate()
                 ?.alpha(0f)
                 ?.setDuration(200L)
