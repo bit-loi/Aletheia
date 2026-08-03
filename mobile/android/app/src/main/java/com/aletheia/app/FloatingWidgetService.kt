@@ -27,6 +27,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 
@@ -182,14 +183,12 @@ class FloatingWidgetService : Service() {
             val root = FrameLayout(this)
             container = root
 
-            // 1. Collapsed bubble: circular "A" button, natively draggable.
-            val bubble = TextView(this).apply {
-                text = "A"
-                textSize = 20f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
+            // 1. Collapsed bubble: circular logo button, natively draggable.
+            val bubble = ImageView(this).apply {
+                setImageResource(R.drawable.logo)
+                scaleType = ImageView.ScaleType.CENTER_CROP
                 setBackground(circle("#121216", 1, "#2A2A32"))
+                clipToOutline = true
             }
             root.addView(
                 bubble,
