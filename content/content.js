@@ -34,14 +34,14 @@
     // extension works on install with nothing configured. If both the proxy and
     // any personal keys fail, the service worker reports it as a real
     // PIPELINE_ERROR and the overlay shows that, with a retry.
-    overlay.setStatus('Reading article…', true);
+    overlay.setStatus(overlay.getOverlayString('reading_article'), true);
     overlay.setProgressIndeterminate();
     overlay.clearClaims();
 
     const { title, text } = extractArticleText();
 
     if (!text || text.length < 100) {
-      overlay.setStatus('Error', false);
+      overlay.setStatus(overlay.getOverlayString('error'), false);
       overlay.clearProgress();
       overlay.showError(
         'Could not extract enough text from this page. The article may be paywalled, ' +
@@ -83,7 +83,7 @@
         case 'CLAIMS_FOUND':
           overlay.show();
           overlay.totalClaims = msg.count;
-          overlay.setStatus(`Found ${msg.count} claims, checking...`, true);
+          overlay.setStatus(overlay.getOverlayString('found_claims', msg.count), true);
           // Reserve a slot per expected claim so results resolve in place.
           overlay.renderSkeletons(msg.count);
           break;
@@ -101,19 +101,19 @@
           // claimsFound === 0 is a terminal state, not a failure. Without it the
           // overlay used to sit on "Listening & transcribing audio…" forever.
           if (msg.claimsFound === 0 && overlay.claimCount === 0) {
-            overlay.setStatus('No claims found', false);
+            overlay.setStatus(overlay.getOverlayString('no_claims_found'), false);
             overlay.clearProgress();
             overlay.renderNoClaims(msg.mode);
             break;
           }
-          overlay.setStatus(`Done: ${overlay.claimCount} claims checked`, false);
+          overlay.setStatus(overlay.getOverlayString('done_claims', overlay.claimCount), false);
           overlay.setProgress(1);
           setTimeout(() => overlay.clearProgress(), 2000);
           break;
 
         case 'PIPELINE_ERROR':
           overlay.show();
-          overlay.setStatus('Error', false);
+          overlay.setStatus(overlay.getOverlayString('error'), false);
           overlay.clearProgress();
           overlay.showError(msg.error, {
             onRetry: () => startArticleCheck(overlay),

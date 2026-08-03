@@ -264,7 +264,7 @@ export async function extractClaims(text: string, lang: LangCode = DEFAULT_LANG)
     text.length > 12000 ? text.slice(0, 12000) + '\n[…text truncated…]' : text;
   const basePrompt = CLAIM_EXTRACTION_PROMPTS[lang] || CLAIM_EXTRACTION_PROMPTS.id;
   const label = TEXT_LABELS[lang] || TEXT_LABELS.id;
-  const prompt = basePrompt + `\n\n${label}:\n"""\n${truncated}\n"""`;
+  const prompt = basePrompt + '\n\n' + label + ':\n---\n' + truncated + '\n---';
 
   const content = await callLLM(prompt, 0.2, 2048);
 

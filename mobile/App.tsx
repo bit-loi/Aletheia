@@ -37,7 +37,7 @@ import {
   stopFloatingWidget,
   subscribeFloatingWidgetTap,
 } from './src/audioCapture';
-import {t, type LangCode, LANG_LABELS, LANG_NAMES, SUPPORTED_LANGS, isRTL} from './src/i18n';
+import {t, type LangCode, LANG_LABELS, SUPPORTED_LANGS} from './src/i18n';
 
 // Theme Definitions matching shared/tokens.js
 

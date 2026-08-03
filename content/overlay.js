@@ -32,6 +32,11 @@ const DRAG_THRESHOLD = 4; // px before a pointer-down counts as a drag, not a cl
 const OVERLAY_STRINGS = {
   id: {
     ready: 'Siap',
+    reading_article: 'Membaca artikel…',
+    error: 'Error',
+    found_claims: 'Menemukan {count} klaim, memeriksa…',
+    no_claims_found: 'Tidak ada klaim ditemukan',
+    done_claims: 'Selesai: {count} klaim diperiksa',
     nothing_checked: 'Belum ada yang diperiksa',
     nothing_checked_body: 'Jalankan pemeriksaan dari menu toolbar Aletheia untuk melihat klaim dan hasil di sini.',
     service_unavailable: 'Layanan tidak tersedia',
@@ -47,6 +52,11 @@ const OVERLAY_STRINGS = {
   },
   en: {
     ready: 'Ready',
+    reading_article: 'Reading article…',
+    error: 'Error',
+    found_claims: 'Found {count} claims, checking…',
+    no_claims_found: 'No claims found',
+    done_claims: 'Done: {count} claims checked',
     nothing_checked: 'Nothing checked yet',
     nothing_checked_body: 'Run a check from the Aletheia toolbar menu to see claims and verdicts here.',
     service_unavailable: 'Service unavailable',
@@ -62,6 +72,11 @@ const OVERLAY_STRINGS = {
   },
   ja: {
     ready: '準備完了',
+    reading_article: '記事を読み込み中…',
+    error: 'エラー',
+    found_claims: '{count}件のクライアントを発見、チェック中…',
+    no_claims_found: 'クライアントが見つかりません',
+    done_claims: '完了: {count}件のクライアントをチェック済み',
     nothing_checked: 'まだチェックされていません',
     nothing_checked_body: 'Aletheiaツールバーのメニューからチェックを実行すると、クライアントと判定がここに表示されます。',
     service_unavailable: 'サービスが利用できません',
@@ -77,6 +92,11 @@ const OVERLAY_STRINGS = {
   },
   ko: {
     ready: '준비 완료',
+    reading_article: '기사 읽는 중…',
+    error: '오류',
+    found_claims: '{count}개 주장을 발견, 확인 중…',
+    no_claims_found: '주장이 없습니다',
+    done_claims: '완료: {count}개 주장을 확인했습니다',
     nothing_checked: '아직 확인된 것이 없습니다',
     nothing_checked_body: 'Aletheia 툴바 메뉴에서 확인을 실행하면 주장과 판정이 여기에 표시됩니다.',
     service_unavailable: '서비스를 사용할 수 없음',
@@ -92,6 +112,11 @@ const OVERLAY_STRINGS = {
   },
   zh: {
     ready: '就绪',
+    reading_article: '正在读取文章…',
+    error: '错误',
+    found_claims: '发现 {count} 条陈述，正在检查…',
+    no_claims_found: '未找到陈述',
+    done_claims: '完成：已检查 {count} 条陈述',
     nothing_checked: '尚未检查任何内容',
     nothing_checked_body: '从 Aletheia 工具栏菜单运行检查，以在此处查看陈述和判定。',
     service_unavailable: '服务不可用',
@@ -107,6 +132,11 @@ const OVERLAY_STRINGS = {
   },
   ar: {
     ready: 'جاهز',
+    reading_article: 'جارٍ قراءة المقال…',
+    error: 'خطأ',
+    found_claims: 'تم العثور على {count} ادعاءات، جارٍ الفحص…',
+    no_claims_found: 'لم يتم العثور على ادعاءات',
+    done_claims: 'تم: فحص {count} ادعاءات',
     nothing_checked: 'لم يتم فحص شيء بعد',
     nothing_checked_body: 'قم بتشغيل فحص من قائمة شريط أدوات Aletheia لرؤية المزاعم والأحكام هنا.',
     service_unavailable: 'الخدمة غير متاحة',
@@ -122,6 +152,11 @@ const OVERLAY_STRINGS = {
   },
   es: {
     ready: 'Listo',
+    reading_article: 'Leyendo artículo…',
+    error: 'Error',
+    found_claims: 'Se encontraron {count} afirmaciones, verificando…',
+    no_claims_found: 'No se encontraron afirmaciones',
+    done_claims: 'Listo: {count} afirmaciones verificadas',
     nothing_checked: 'Nada verificado aún',
     nothing_checked_body: 'Ejecuta una verificación desde el menú de la barra de herramientas de Aletheia para ver las afirmaciones y veredictos aquí.',
     service_unavailable: 'Servicio no disponible',
@@ -137,6 +172,11 @@ const OVERLAY_STRINGS = {
   },
   pt: {
     ready: 'Pronto',
+    reading_article: 'Lendo artigo…',
+    error: 'Erro',
+    found_claims: '{count} alegações encontradas, verificando…',
+    no_claims_found: 'Nenhuma alegação encontrada',
+    done_claims: 'Pronto: {count} alegações verificadas',
     nothing_checked: 'Nada verificado ainda',
     nothing_checked_body: 'Execute uma verificação no menu da barra de ferramentas do Aletheia para ver alegações e veredictos aqui.',
     service_unavailable: 'Serviço indisponível',
@@ -152,6 +192,11 @@ const OVERLAY_STRINGS = {
   },
   jv: {
     ready: 'Siap',
+    reading_article: 'Macaa artikel…',
+    error: 'Error',
+    found_claims: 'Nemu {count} klaim, mriksa…',
+    no_claims_found: 'Ora ana klaim sing ditemokake',
+    done_claims: 'Rampung: {count} klaim diperiksa',
     nothing_checked: 'Durung ana sing diperiksa',
     nothing_checked_body: 'Jalurake pemeriksaan saka menu toolbar Aletheia kanggo ndeleng klaim lan putusan ing kene.',
     service_unavailable: 'Layanan ora kasedhiya',
@@ -167,6 +212,11 @@ const OVERLAY_STRINGS = {
   },
   su: {
     ready: 'Siap',
+    reading_article: 'Nyokoartikel…',
+    error: 'Galat',
+    found_claims: 'Manggihan {count} klaim, ngecek…',
+    no_claims_found: 'Teu aya klaim anu kapanggih',
+    done_claims: 'Rampung: {count} klaim dicek',
     nothing_checked: 'Belum aya anu dicek',
     nothing_checked_body: 'Jalankeun panyodoran tina menu toolbar Aletheia pikeun ningali klaim sareng putusan di dieu.',
     service_unavailable: 'Layanan teu sayaga',
@@ -184,16 +234,37 @@ const OVERLAY_STRINGS = {
 
 let _overlayLang = 'id';
 let _overlayStrings = OVERLAY_STRINGS.id;
+let _activeOverlay = null; // Reference to the current overlay instance
 
 function getOverlayString(key, ...args) {
   const val = _overlayStrings[key];
   if (typeof val === 'function') return val(...args);
+  if (typeof val === 'string' && args.length > 0) {
+    return val.replace(/\{(\d+)\}/g, (match, idx) => args[parseInt(idx)] ?? match);
+  }
   return val ?? key;
 }
 
 function setOverlayLang(lang) {
   _overlayLang = lang;
   _overlayStrings = OVERLAY_STRINGS[lang] || OVERLAY_STRINGS.id;
+  // Re-render the overlay when language changes
+  if (_activeOverlay) {
+    _activeOverlay.renderEmptyState();
+    if (_activeOverlay.statusEl) {
+      _activeOverlay.statusEl.textContent = getOverlayString('ready');
+    }
+    // Update aria-labels that contain translatable text
+    if (_activeOverlay.panel) {
+      _activeOverlay.panel.setAttribute('aria-label', 'Aletheia fact check');
+      const grip = _activeOverlay.panel.querySelector('.al-grip');
+      if (grip) grip.setAttribute('aria-label', 'Move panel. Use arrow keys to reposition.');
+      const minimize = _activeOverlay.panel.querySelector('#al-minimize');
+      if (minimize) minimize.setAttribute('aria-label', 'Minimize panel');
+      const close = _activeOverlay.panel.querySelector('#al-close');
+      if (close) close.setAttribute('aria-label', 'Close panel');
+    }
+  }
 }
 
 // Load language from storage
@@ -221,6 +292,7 @@ window.Aletheia.Overlay = class AletheiaOverlay {
     this.claimCount = 0;
     this.totalClaims = 0;
     this._inject();
+    _activeOverlay = this; // Set global reference for language change updates
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -722,6 +794,11 @@ window.Aletheia.Overlay = class AletheiaOverlay {
   // ═══════════════════════════════════════════════════════════════════════════
   // HELPERS
   // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Get a translated string by key. */
+  getOverlayString(key, ...args) {
+    return getOverlayString(key, ...args);
+  }
 
   /** Escape HTML entities to prevent XSS via model- or page-derived content. */
   _esc(str) {
