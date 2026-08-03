@@ -20,6 +20,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
@@ -71,14 +72,19 @@ class FloatingWidgetService : Service() {
     private var bubbleClose: TextView? = null
     private var cardContainer: FrameLayout? = null
     private var webView: WebView? = null
+    private var dragBar: View? = null
     private var density = 1f
 
-    // Shared drag state for the native bubble.
+    // Shared drag state for the native bubble and card header drag.
     private var initialX = 0
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var isClick = true
+
+    // Pinch-to-minimize state for the expanded card.
+    private var scaleDetector: ScaleGestureDetector? = null
+    private var cumulativeScale = 1.0f
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -221,12 +227,84 @@ class FloatingWidgetService : Service() {
             bubbleClose = closeBadge
 
             // 2. Expanded card: WebView hosting the ported extension UI.
-            val card = FrameLayout(this)
+            //    Custom FrameLayout that intercepts multi-finger touches before
+            //    the WebView can consume them for zoom. Single-finger touches
+            //    pass through normally so the WebView's scroll, tap, and close
+            //    button all keep working.
+            val card = object : FrameLayout(this@FloatingWidgetService) {
+                override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+                    if (ev.pointerCount >= 2) {
+                        scaleDetector?.onTouchEvent(ev)
+                        return true
+                    }
+                    return super.dispatchTouchEvent(ev)
+                }
+            }
             card.visibility = View.GONE
             val cardW = (340 * density).toInt()
             val cardH = (460 * density).toInt()
             root.addView(card, FrameLayout.LayoutParams(cardW, cardH))
             cardContainer = card
+
+            // ScaleGestureDetector for two-finger pinch-to-minimize.
+            // Tracks CUMULATIVE scale (multiplying each incremental factor)
+            // and triggers collapse when the total scale drops below 0.7.
+            scaleDetector = ScaleGestureDetector(
+                this,
+                object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                        cumulativeScale = 1.0f
+                        return true
+                    }
+
+                    override fun onScale(detector: ScaleGestureDetector): Boolean {
+                        cumulativeScale *= detector.scaleFactor
+                        if (cumulativeScale < 0.7f) {
+                            collapse()
+                            cumulativeScale = 1.0f
+                        }
+                        return true
+                    }
+
+                    override fun onScaleEnd(detector: ScaleGestureDetector) {
+                        cumulativeScale = 1.0f
+                    }
+                }
+            )
+
+            // Native drag bar — added to ROOT (not card) so it sits ABOVE the
+            // WebView in z-order. The WebView cannot consume touches from a
+            // sibling view drawn on top of it.
+            // Covers the left48dp × 48dp at the top (the grip area), leaving
+            // the right side free so the WebView's close button keeps working.
+            val bar = View(this).apply {
+                setBackgroundColor(Color.parseColor("#01000000"))
+            }
+            val barLp = FrameLayout.LayoutParams((48 * density).toInt(), (48 * density).toInt()).apply {
+                gravity = Gravity.TOP or Gravity.START
+            }
+            root.addView(bar, barLp)
+            this@FloatingWidgetService.dragBar = bar
+
+            bar.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = wmParams?.x ?: 0
+                        initialY = wmParams?.y ?: 0
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = (event.rawX - initialTouchX).toInt()
+                        val dy = (event.rawY - initialTouchY).toInt()
+                        moveWindow(initialX + dx, initialY + dy)
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
+            }
 
             // Bubble drag + tap. The close badge is a sibling on top, so its
             // own click handler wins and never conflicts with drag logic.
@@ -285,7 +363,7 @@ class FloatingWidgetService : Service() {
         } catch (_: Exception) {}
     }
 
-    /** Expand the WebView card; bubble hides (container re-sizes to the card). */
+    /** Expand the WebView card with a smooth grow animation. */
     fun showCard() {
         Handler(Looper.getMainLooper()).post {
             if (webView == null) {
@@ -293,7 +371,34 @@ class FloatingWidgetService : Service() {
             }
             bubbleView?.visibility = View.GONE
             bubbleClose?.visibility = View.GONE
-            cardContainer?.visibility = View.VISIBLE
+
+            val card = cardContainer
+            val bar = dragBar
+
+            // Start scaled down + transparent, then animate to full size.
+            if (card != null) {
+                card.scaleX = 0.3f
+                card.scaleY = 0.3f
+                card.alpha = 0f
+                card.visibility = View.VISIBLE
+                card.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .alpha(1f)
+                    .setDuration(280L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                    .start()
+            }
+
+            // Fade the drag bar in.
+            bar?.alpha = 0f
+            bar?.visibility = View.VISIBLE
+            bar?.animate()
+                ?.alpha(1f)
+                ?.setDuration(200L)
+                ?.setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                ?.start()
+
             wmParams?.let { p ->
                 try { windowManager?.updateViewLayout(container, wmParams) } catch (_: Exception) {}
                 moveWindow(p.x, p.y)
@@ -301,14 +406,39 @@ class FloatingWidgetService : Service() {
         }
     }
 
-    /** Collapse back to the bubble; the widget stays alive and draggable. */
+    /** Collapse back to the bubble with a smooth shrink animation. */
     fun collapse() {
         Handler(Looper.getMainLooper()).post {
-            cardContainer?.visibility = View.GONE
-            bubbleView?.visibility = View.VISIBLE
-            bubbleClose?.visibility = View.VISIBLE
-            try { windowManager?.updateViewLayout(container, wmParams) } catch (_: Exception) {}
-            wmParams?.let { moveWindow(it.x, it.y) }
+            val card = cardContainer ?: return@post
+            val bar = dragBar
+
+            // Animate: scale down to 0 + fade out simultaneously.
+            card.animate()
+                .scaleX(0.3f)
+                .scaleY(0.3f)
+                .alpha(0f)
+                .setDuration(250L)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                .withEndAction {
+                    card.animate().setListener(null)  // clear to avoid leaks
+                    card.scaleX = 1f
+                    card.scaleY = 1f
+                    card.alpha = 1f
+                    card.visibility = View.GONE
+                    bar?.visibility = View.GONE
+                    bubbleView?.visibility = View.VISIBLE
+                    bubbleClose?.visibility = View.VISIBLE
+                    try { windowManager?.updateViewLayout(container, wmParams) } catch (_: Exception) {}
+                    wmParams?.let { moveWindow(it.x, it.y) }
+                }
+                .start()
+
+            // Fade the drag bar out slightly faster.
+            bar?.animate()
+                ?.alpha(0f)
+                ?.setDuration(200L)
+                ?.setInterpolator(android.view.animation.DecelerateInterpolator(2f))
+                ?.start()
         }
     }
 
@@ -318,6 +448,8 @@ class FloatingWidgetService : Service() {
         wv.settings.javaScriptEnabled = true
         wv.settings.domStorageEnabled = true
         wv.settings.setSupportZoom(false)
+        wv.settings.builtInZoomControls = false
+        wv.settings.displayZoomControls = false
         wv.settings.cacheMode = WebSettings.LOAD_NO_CACHE
         wv.setBackgroundColor(Color.TRANSPARENT)
         wv.isVerticalScrollBarEnabled = false

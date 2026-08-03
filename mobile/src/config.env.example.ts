@@ -20,10 +20,4 @@ export const ENV = {
    *   cd ../proxy && npx wrangler secret put MOBILE_API_TOKEN
    */
   MOBILE_API_TOKEN: '',
-
-  /**
-   * PaddleOCR microservice base URL (Phase 2, screen-text capture). Leave empty
-   * — ocrClient.ts short-circuits to an empty result when it is unset.
-   */
-  OCR_SERVICE_URL: '',
 };

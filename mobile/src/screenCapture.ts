@@ -19,8 +19,7 @@
  *      per session (no persistent grant). The recording indicator (red
  *      status bar) is mandatory OS behavior do not suppress it.
  *   3. Extract one frame every 3 to 5 seconds, not every frame.
- *   4. Send each frame to the PaddleOCR microservice (see ocrClient.ts).
- *   5. DRM protected content may render black this is expected OS behavior.
+ *   4. DRM protected content may render black this is expected OS behavior.
  */
 
 export interface ScreenCaptureCallbacks {

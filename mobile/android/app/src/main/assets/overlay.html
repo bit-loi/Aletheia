@@ -649,54 +649,13 @@
     updateStatus(meta.label + (data.confidence ? ' · ' + data.confidence + ' confidence' : ''));
   }
 
-  // ── Drag: report deltas to the Android overlay window ───────────────────
-  // Port of the extension's _makeDraggable (pointer events, movement
-  // threshold) minus in-page positioning — window.AletheiaNative is a Kotlin
-  // @JavascriptInterface that moves the actual TYPE_APPLICATION_OVERLAY
-  // window, so the card can be dragged anywhere on screen.
-  var DRAG_THRESHOLD = 4;
-  var dragHandle = document.getElementById('al-chrome');
-  var dragging = false;
-  var moved = false;
-  var startX = 0, startY = 0;
-
+  // ── Controls ─────────────────────────────────────────────────────────────
+  // The bridge method is onCollapse, matching the onDragStart/Move/End naming.
+  // Calling a name the bridge does not expose fails silently in a WebView.
   function native() {
     return (typeof window.AletheiaNative !== 'undefined') ? window.AletheiaNative : null;
   }
 
-  dragHandle.addEventListener('pointerdown', function (e) {
-    var target = e.target;
-    if (target && target.closest && target.closest('.al-ctrl')) return;
-    dragging = true;
-    moved = false;
-    startX = e.clientX;
-    startY = e.clientY;
-    try { dragHandle.setPointerCapture(e.pointerId); } catch (_) {}
-    if (native()) native().onDragStart(e.clientX, e.clientY);
-    e.preventDefault();
-  });
-
-  dragHandle.addEventListener('pointermove', function (e) {
-    if (!dragging) return;
-    var dx = e.clientX - startX;
-    var dy = e.clientY - startY;
-    if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-    moved = true;
-    if (native()) native().onDragMove(dx, dy);
-  });
-
-  function endDrag(e) {
-    if (!dragging) return;
-    dragging = false;
-    try { dragHandle.releasePointerCapture(e.pointerId); } catch (_) {}
-    if (native()) native().onDragEnd();
-  }
-  dragHandle.addEventListener('pointerup', endDrag);
-  dragHandle.addEventListener('pointercancel', endDrag);
-
-  // ── Controls ─────────────────────────────────────────────────────────────
-  // The bridge method is onCollapse, matching the onDragStart/Move/End naming.
-  // Calling a name the bridge does not expose fails silently in a WebView.
   document.getElementById('al-close').addEventListener('click', function () {
     if (native()) native().onCollapse();
   });

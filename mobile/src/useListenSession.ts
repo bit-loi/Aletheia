@@ -6,7 +6,7 @@
  *   2. Request mic permission
  *   3. Start recording (15s auto-stop)
  *   4. Transcribe the recorded audio (batch)
- *   5. Merge context (audio + OCR in Phase 2)
+ *   5. Merge context (audio transcript)
  *   6. Run verification pipeline
  *   7. Return results to UI
  *
@@ -185,8 +185,8 @@ export function useListenSession() {
       const audioBase64 = await fileToBase64(filePath);
       const transcript = await transcribeAudio(audioBase64, 'audio/wav');
 
-      // 5. Merge context (audio-only in Phase 1)
-      const merged = mergeContext(transcript, []);
+      // 5. Merge context (audio-only)
+      const merged = mergeContext(transcript);
       updateState({ context: merged });
 
       // 6. Verify

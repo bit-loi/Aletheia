@@ -24,7 +24,4 @@ export const CONFIG = {
 
   /** Gemini model used for batch transcription via the proxy. */
   TRANSCRIPTION_MODEL: 'gemini-2.5-flash',
-
-  /** PaddleOCR microservice URL (set to ngrok URL for demo). */
-  OCR_SERVICE_URL: ENV.OCR_SERVICE_URL || '',
 };
