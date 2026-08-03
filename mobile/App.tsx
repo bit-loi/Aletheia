@@ -205,7 +205,7 @@ function App(): React.JSX.Element {
             </View>
           </View>
 
-          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+          <View style={styles.headerControls}>
             {/* Language Segmented Control */}
             <View
               style={[
@@ -213,7 +213,6 @@ function App(): React.JSX.Element {
                 {
                   backgroundColor: tokens.surfaceRaised,
                   borderColor: tokens.borderHairline,
-                  marginRight: 8,
                 },
               ]}>
               <TouchableOpacity
@@ -279,7 +278,7 @@ function App(): React.JSX.Element {
                     styles.themeSlider,
                     {
                       backgroundColor: tokens.ink,
-                      transform: [{translateX: theme === 'light' ? 12 : 2}],
+                      transform: [{translateX: theme === 'light' ? 10 : 2}],
                     },
                   ]}
                 />
@@ -764,6 +763,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  headerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   logoInfo: {
     flexDirection: 'row',
@@ -792,28 +798,28 @@ const styles = StyleSheet.create({
   themeToggleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 8,
     borderWidth: 1,
-    gap: 6,
+    gap: 4,
   },
   themeLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
   themeSwitch: {
-    width: 28,
-    height: 16,
-    borderRadius: 8,
+    width: 24,
+    height: 14,
+    borderRadius: 7,
     borderWidth: 1,
     justifyContent: 'center',
   },
   themeSlider: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 
   // Language Segmented Control
@@ -825,7 +831,7 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   segmentBtn: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 6,
   },
