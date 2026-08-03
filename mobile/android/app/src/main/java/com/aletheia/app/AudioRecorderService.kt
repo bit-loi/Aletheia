@@ -23,8 +23,16 @@ import java.io.RandomAccessFile
 /**
  * AudioRecorderService — the foreground service that records microphone audio.
  *
- * Unchanged responsibility: record N seconds of speaker audio to a WAV file,
- * hold a persistent notification, and broadcast amplitude / completion events.
+ * Two modes:
+ *   - one-shot: record N seconds to a WAV file, broadcast it, stop the service.
+ *   - continuous: keep one AudioRecord open and emit back-to-back N-second WAV
+ *     chunks until ACTION_STOP arrives. This is what the auto-listen loop uses.
+ *
+ * Continuous mode is not a JS loop over the one-shot path for two reasons.
+ * The microphone would be closed for the whole transcribe + verify round trip,
+ * so most of what is playing would never be recorded; and restarting a
+ * foreground service while the user is inside TikTok runs into the Android 12+
+ * background-start restriction. Holding one AudioRecord open avoids both.
  *
  * The floating widget display that previously lived here moved out: the
  * bubble + verdict card now live in FloatingWidgetService (WebView-based,
@@ -40,6 +48,10 @@ class AudioRecorderService : Service() {
         const val ACTION_STOP = "com.aletheia.app.STOP_RECORDING"
         const val EXTRA_MAX_DURATION_MS = "max_duration_ms"
         const val EXTRA_OUTPUT_PATH = "output_path"
+        const val EXTRA_CONTINUOUS = "continuous"
+
+        /** Chunk files are named so stale ones can be swept on the next start. */
+        const val CHUNK_PREFIX = "aletheia_chunk_"
 
         const val SAMPLE_RATE = 16000
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
@@ -48,8 +60,9 @@ class AudioRecorderService : Service() {
 
     private var audioRecord: AudioRecord? = null
     private var recordingThread: Thread? = null
-    private var isRecording = false
+    @Volatile private var isRecording = false
     private var outputPath: String? = null
+    private var continuous = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -64,7 +77,7 @@ class AudioRecorderService : Service() {
                 val maxDuration = intent.getLongExtra(EXTRA_MAX_DURATION_MS, 15000L)
                 val path = intent.getStringExtra(EXTRA_OUTPUT_PATH)
                     ?: File(cacheDir, "aletheia_recording_${System.currentTimeMillis()}.wav").absolutePath
-                startRecording(path, maxDuration)
+                startRecording(path, maxDuration, intent.getBooleanExtra(EXTRA_CONTINUOUS, false))
             }
             ACTION_STOP -> {
                 stopRecording()
@@ -108,7 +121,10 @@ class AudioRecorderService : Service() {
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Aletheia is listening")
-            .setContentText("Listening to audio stream... Tap to return to app.")
+            .setContentText(
+                if (continuous) "Auto-checking what is playing. Tap to return to app."
+                else "Listening to audio stream... Tap to return to app."
+            )
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -126,7 +142,7 @@ class AudioRecorderService : Service() {
         return builder.build()
     }
 
-    private fun startRecording(path: String, maxDurationMs: Long) {
+    private fun startRecording(path: String, maxDurationMs: Long, continuousMode: Boolean = false) {
         if (isRecording) return
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -136,6 +152,8 @@ class AudioRecorderService : Service() {
         }
 
         outputPath = path
+        continuous = continuousMode
+        if (continuous) sweepStaleChunks()
 
         // Start as foreground service FIRST
         startForeground(NOTIFICATION_ID, buildNotification())
@@ -158,17 +176,64 @@ class AudioRecorderService : Service() {
         audioRecord?.startRecording()
 
         recordingThread = Thread {
-            writeWavFile(path, bufferSize, maxDurationMs)
+            if (continuous) recordChunks(bufferSize, maxDurationMs)
+            else writeWavFile(path, bufferSize, maxDurationMs)
         }.apply { start() }
     }
 
     private fun writeWavFile(path: String, bufferSize: Int, maxDurationMs: Long) {
-        val file = File(path)
-        val fos = FileOutputStream(file)
+        var bytes = 0L
+        try {
+            bytes = writeChunk(path, bufferSize, maxDurationMs)
+        } finally {
+            // Always broadcast: a caller awaiting the one-shot promise would
+            // otherwise hang forever on a write failure.
+            try { writeWavHeader(path, bytes) } catch (_: Exception) {}
+            releaseRecorder()
+            broadcastComplete(path)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
+    /**
+     * Continuous mode: emit one finished WAV every maxDurationMs while the
+     * microphone stays open, so the next window is already being captured
+     * while the previous one is still in transcription.
+     *
+     * The window that is cut short by ACTION_STOP is deleted rather than
+     * broadcast — otherwise stopping would kick off one more round trip whose
+     * result nobody is waiting for.
+     */
+    private fun recordChunks(bufferSize: Int, maxDurationMs: Long) {
+        try {
+            while (isRecording) {
+                val path = File(cacheDir, "$CHUNK_PREFIX${System.currentTimeMillis()}.wav").absolutePath
+                val bytes = writeChunk(path, bufferSize, maxDurationMs)
+                writeWavHeader(path, bytes)
+
+                if (isRecording && bytes > 0) {
+                    broadcastComplete(path)
+                } else {
+                    File(path).delete()
+                }
+            }
+        } finally {
+            releaseRecorder()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
+    /**
+     * Write a single window of PCM to [path] behind a placeholder header and
+     * return the number of audio bytes written. Leaves the AudioRecord open.
+     */
+    private fun writeChunk(path: String, bufferSize: Int, maxDurationMs: Long): Long {
+        val fos = FileOutputStream(File(path))
 
         // Write WAV header placeholder (44 bytes)
-        val header = ByteArray(44)
-        fos.write(header)
+        fos.write(ByteArray(44))
 
         val buffer = ShortArray(bufferSize)
         var totalBytesWritten = 0L
@@ -197,22 +262,25 @@ class AudioRecorderService : Service() {
             }
         } finally {
             fos.close()
-
-            // Go back and write the proper WAV header
-            writeWavHeader(path, totalBytesWritten)
-
-            // Auto-stop the service
-            isRecording = false
-            audioRecord?.stop()
-            audioRecord?.release()
-            audioRecord = null
-
-            // Broadcast completion
-            broadcastComplete(path)
-
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
         }
+
+        return totalBytesWritten
+    }
+
+    private fun releaseRecorder() {
+        isRecording = false
+        try {
+            audioRecord?.stop()
+        } catch (_: Exception) {}
+        audioRecord?.release()
+        audioRecord = null
+    }
+
+    /** Chunks are ~480 KB each, so a crashed session must not leave them behind. */
+    private fun sweepStaleChunks() {
+        try {
+            cacheDir.listFiles { f -> f.name.startsWith(CHUNK_PREFIX) }?.forEach { it.delete() }
+        } catch (_: Exception) {}
     }
 
     private fun calculateRms(buffer: ShortArray, length: Int): Float {

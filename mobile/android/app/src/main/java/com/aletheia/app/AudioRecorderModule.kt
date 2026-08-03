@@ -20,6 +20,10 @@ import java.io.File
  * Exposes:
  *   - startRecording(options): starts the foreground service + recording
  *   - stopRecording(): stops recording, returns file path
+ *   - startContinuousRecording(options) / stopContinuousRecording(): auto-listen
+ *     mode, where each finished window arrives as an onRecordingChunk event
+ *     rather than resolving a single promise
+ *   - deleteRecording(path): drop a chunk once it has been uploaded
  *   - isHeadphonesConnected(): checks wired/Bluetooth audio output
  *
  * Overlay/permission responsibilities (SYSTEM_ALERT_WINDOW flow, floating
@@ -32,6 +36,8 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
 
     private var recordingPromise: Promise? = null
     private var outputPath: String? = null
+    /** True between startContinuousRecording and stopContinuousRecording. */
+    private var continuousMode = false
 
     private val amplitudeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -45,6 +51,14 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
     private val completeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val filePath = intent?.getStringExtra("filePath") ?: ""
+            if (continuousMode) {
+                // Auto-listen: windows keep arriving, so this is an event
+                // stream, not a promise, and the receivers stay registered.
+                sendEvent("onRecordingChunk", Arguments.createMap().apply {
+                    putString("filePath", filePath)
+                })
+                return
+            }
             recordingPromise?.resolve(filePath)
             recordingPromise = null
             unregisterReceivers()
@@ -112,6 +126,7 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
         val path = File(context.cacheDir,
             "aletheia_recording_${System.currentTimeMillis()}.wav").absolutePath
         outputPath = path
+        continuousMode = false
 
         // Store promise to resolve when recording completes
         recordingPromise = promise
@@ -149,6 +164,77 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
                 promise.resolve(it)
             }, 500)
         } ?: promise.resolve("")
+    }
+
+    /**
+     * Auto-listen: keep the microphone open and deliver a finished WAV every
+     * maxDurationMs as an onRecordingChunk event. Resolves as soon as the
+     * service has been asked to start — the windows arrive afterwards.
+     */
+    @ReactMethod
+    fun startContinuousRecording(options: ReadableMap, promise: Promise) {
+        val context = reactApplicationContext
+
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            promise.reject("PERMISSION_DENIED", "Microphone permission not granted")
+            return
+        }
+
+        val maxDurationMs = if (options.hasKey("maxDurationMs"))
+            options.getInt("maxDurationMs").toLong() else 15000L
+
+        continuousMode = true
+        recordingPromise = null
+        registerReceivers()
+
+        val intent = Intent(context, AudioRecorderService::class.java).apply {
+            action = AudioRecorderService.ACTION_START
+            putExtra(AudioRecorderService.EXTRA_MAX_DURATION_MS, maxDurationMs)
+            putExtra(AudioRecorderService.EXTRA_CONTINUOUS, true)
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            continuousMode = false
+            unregisterReceivers()
+            promise.reject("START_FAILED", e.message ?: "Could not start the recorder service", e)
+        }
+    }
+
+    @ReactMethod
+    fun stopContinuousRecording(promise: Promise) {
+        val context = reactApplicationContext
+        continuousMode = false
+        try {
+            val intent = Intent(context, AudioRecorderService::class.java).apply {
+                action = AudioRecorderService.ACTION_STOP
+            }
+            context.startService(intent)
+        } catch (_: Exception) {
+            // The service may already be gone; stopping is still a success.
+        }
+        unregisterReceivers()
+        promise.resolve(true)
+    }
+
+    /**
+     * Delete a chunk after it has been uploaded. Auto-listen writes ~480 KB
+     * every 15 s, so leaving them in the cache is not an option.
+     */
+    @ReactMethod
+    fun deleteRecording(path: String, promise: Promise) {
+        try {
+            promise.resolve(File(path).delete())
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
     }
 
     @ReactMethod

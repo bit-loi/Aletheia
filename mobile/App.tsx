@@ -30,6 +30,7 @@ import {useListenSession, type SessionPhase} from './src/useListenSession';
 import type {ClaimResult} from './src/verifyContent';
 import {
   checkOverlayPermission,
+  expandWidget,
   openVendorAutoStartSettings,
   requestOverlayPermission,
   startFloatingWidget,
@@ -106,7 +107,7 @@ function App(): React.JSX.Element {
   const [lang, setLang] = useState<'id' | 'en'>('id');
   const tokens = theme === 'dark' ? DARK_TOKENS : LIGHT_TOKENS;
 
-  const {state, startSession, cancelSession, resetSession, checkHeadphones} =
+  const {state, startAutoSession, cancelSession, resetSession, checkHeadphones} =
     useListenSession();
 
   const [floatingWidgetEnabled, setFloatingWidgetEnabled] = useState(false);
@@ -115,6 +116,9 @@ function App(): React.JSX.Element {
   // re-subscribing on every language toggle.
   const langRef = useRef(lang);
   langRef.current = lang;
+  // Read inside the bubble-tap subscription, which is registered once.
+  const autoRef = useRef(state.auto);
+  autoRef.current = state.auto;
   // Set when the user taps "Enable floating widget" and we had to leave the
   // app for Settings; cleared once the grant is detected on return.
   const pendingOverlayEnableRef = useRef(false);
@@ -140,6 +144,9 @@ function App(): React.JSX.Element {
             pendingOverlayEnableRef.current = false;
             startFloatingWidget();
             setFloatingWidgetEnabled(true);
+            // The widget exists to check what is playing, so turning it on is
+            // the start signal — no separate tap to begin listening.
+            startAutoSession(langRef.current);
           }
         }
       }
@@ -149,23 +156,30 @@ function App(): React.JSX.Element {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [checkHeadphones]);
+  }, [checkHeadphones, startAutoSession]);
 
-  // Bubble tap → run the existing Listen session (same flow as the button).
+  // Bubble tap → start auto-listening, or just open the card if it is already
+  // running. Stopping is deliberately not on the bubble: it is one tap away
+  // from the card and would be far too easy to hit by accident.
   useEffect(() => {
     const sub = subscribeFloatingWidgetTap(() => {
-      startSession(langRef.current);
+      if (autoRef.current) {
+        expandWidget();
+      } else {
+        startAutoSession(langRef.current);
+      }
     });
     return () => {
       sub?.remove();
     };
-  }, [startSession]);
+  }, [startAutoSession]);
 
   const handleEnableWidget = async () => {
     const granted = await checkOverlayPermission();
     if (granted) {
       startFloatingWidget();
       setFloatingWidgetEnabled(true);
+      startAutoSession(langRef.current);
       return;
     }
     // Open Settings; the AppState listener starts the service on return.
@@ -298,22 +312,32 @@ function App(): React.JSX.Element {
 
       {/* Main Content */}
       <View style={styles.content}>
-        {state.phase === 'done' && state.result ? (
+        {state.result && state.result.claims.length > 0 ? (
+          // Verdicts stay on screen while auto-listen keeps running, so the
+          // feed grows instead of being replaced every window.
           <ResultsView
             result={state.result}
             tokens={tokens}
+            lang={lang}
+            auto={state.auto}
+            statusText={state.statusText}
+            windowsProcessed={state.windowsProcessed}
+            error={state.error}
+            onStop={cancelSession}
             onReset={resetSession}
           />
         ) : (
           <LaunchView
             phase={state.phase}
+            auto={state.auto}
+            windowsProcessed={state.windowsProcessed}
             statusText={state.statusText}
             amplitude={state.amplitude}
             headphonesConnected={state.headphonesConnected}
             error={state.error}
             tokens={tokens}
             lang={lang}
-            onListen={() => startSession(lang)}
+            onListen={() => startAutoSession(lang)}
             onCancel={cancelSession}
             onRetry={resetSession}
             floatingWidgetEnabled={floatingWidgetEnabled}
@@ -342,6 +366,10 @@ function App(): React.JSX.Element {
 
 interface LaunchViewProps {
   phase: SessionPhase;
+  /** Auto-listen is running: the mic stays open and windows keep arriving. */
+  auto: boolean;
+  /** Audio windows checked so far — the only proof of life when nothing is claimed. */
+  windowsProcessed: number;
   statusText: string;
   amplitude: number;
   headphonesConnected: boolean;
@@ -361,6 +389,8 @@ interface LaunchViewProps {
 
 function LaunchView({
   phase,
+  auto,
+  windowsProcessed,
   statusText,
   headphonesConnected,
   error,
@@ -392,6 +422,18 @@ function LaunchView({
     dotColor = tokens.verdictFalseAccent;
     statusTitle = isEn ? 'Service error' : 'Error layanan';
     statusDetail = error;
+  } else if (auto) {
+    dotColor = tokens.verdictFalseAccent;
+    statusTitle = isEn ? 'Auto-checking' : 'Memeriksa otomatis';
+    // Most short clips contain no verifiable claim, so without this counter a
+    // working session and a dead one look identical.
+    statusDetail =
+      (statusText || (isEn ? 'Listening continuously — no taps needed' : 'Mendengarkan terus-menerus — tanpa perlu diketuk')) +
+      (windowsProcessed > 0
+        ? isEn
+          ? ` · ${windowsProcessed} clip${windowsProcessed === 1 ? '' : 's'} checked`
+          : ` · ${windowsProcessed} klip diperiksa`
+        : '');
   } else if (isActive) {
     dotColor = tokens.verdictFalseAccent;
     statusTitle = isEn ? 'Listening to audio' : 'Mendengarkan audio';
@@ -402,8 +444,11 @@ function LaunchView({
     statusDetail = statusText || (isEn ? 'Analyzing claims against trusted sources' : 'Menganalisis klaim terhadap sumber terpercaya');
   }
 
-  let buttonText = isEn ? 'START FACT CHECK' : 'MULAI VERIFIKASI';
-  if (isActive) {
+  let buttonText = isEn ? 'START AUTO FACT CHECK' : 'MULAI VERIFIKASI OTOMATIS';
+  if (auto) {
+    // Stop must stay reachable no matter which stage of the cycle is running.
+    buttonText = isEn ? 'STOP AUTO CHECK' : 'BERHENTI OTOMATIS';
+  } else if (isActive) {
     buttonText = isEn ? 'STOP LISTENING' : 'BERHENTI MENDENGARKAN';
   } else if (isProcessing) {
     buttonText = isEn ? 'CHECKING CONTENT' : 'MEMERIKSA KONTEN';
@@ -444,7 +489,9 @@ function LaunchView({
           {isEn ? 'CURRENT MODE' : 'MODE SAAT INI'}
         </Text>
         <Text style={[styles.modeCardTitle, {color: tokens.ink}]}>
-          {isActive
+          {auto
+            ? (isEn ? 'Auto fact checker' : 'Pemeriksa fakta otomatis')
+            : isActive
             ? (isEn ? 'Listening to playback' : 'Mendengarkan audio')
             : isProcessing
             ? (isEn ? 'Analyzing claims' : 'Menganalisis klaim')
@@ -452,8 +499,8 @@ function LaunchView({
         </Text>
         <Text style={[styles.modeCardDescription, {color: tokens.inkMuted}]}>
           {isEn
-            ? 'Aletheia automatically extracts factual statements from playing media and verifies them against trusted sources.'
-            : 'Aletheia secara otomatis mengekstrak pernyataan faktual dari media yang diputar dan memverifikasinya terhadap sumber terpercaya.'}
+            ? 'Start once and Aletheia keeps listening: every 15 seconds of audio is transcribed and any new factual claim is checked against trusted sources.'
+            : 'Mulai sekali dan Aletheia terus mendengarkan: setiap 15 detik audio ditranskripsi dan setiap klaim faktual baru diperiksa terhadap sumber terpercaya.'}
         </Text>
       </View>
 
@@ -482,8 +529,8 @@ function LaunchView({
         </View>
         <Text style={[styles.modeCardDescription, {color: tokens.inkMuted}]}>
           {isEn
-            ? 'A draggable bubble floats over other apps. Tap it to fact-check what you hear.'
-            : 'Bubble yang dapat digeser melayang di atas aplikasi lain. Ketuk untuk memeriksa fakta yang Anda dengar.'}
+            ? 'A draggable bubble floats over other apps. Enabling it starts auto-checking; tap the bubble to open the verdict card.'
+            : 'Bubble yang dapat digeser melayang di atas aplikasi lain. Mengaktifkannya langsung memulai pemeriksaan otomatis; ketuk bubble untuk membuka kartu hasil.'}
         </Text>
         <TouchableOpacity
           style={[
@@ -558,13 +605,13 @@ function LaunchView({
           style={[
             styles.btnPrimary,
             {
-              backgroundColor: isActive ? tokens.verdictFalseAccent : tokens.ink,
-              borderColor: isActive ? tokens.verdictFalseAccent : tokens.ink,
+              backgroundColor: isActive || auto ? tokens.verdictFalseAccent : tokens.ink,
+              borderColor: isActive || auto ? tokens.verdictFalseAccent : tokens.ink,
               opacity: headphonesConnected && phase === 'idle' ? 0.45 : 1,
             },
           ]}
           disabled={headphonesConnected && phase === 'idle'}
-          onPress={isActive ? onCancel : isProcessing ? undefined : onListen}
+          onPress={auto || isActive ? onCancel : isProcessing ? undefined : onListen}
           activeOpacity={0.8}>
           <Text style={[styles.btnPrimaryText, {color: tokens.surface}]}>
             {buttonText}
@@ -580,17 +627,80 @@ function LaunchView({
 interface ResultsViewProps {
   result: {claims: ClaimResult[]; rawTranscript: string};
   tokens: ColorTokens;
+  lang: 'id' | 'en';
+  auto: boolean;
+  statusText: string;
+  windowsProcessed: number;
+  error: string | null;
+  onStop: () => void;
   onReset: () => void;
 }
 
-function ResultsView({result, tokens, onReset}: ResultsViewProps) {
+function ResultsView({
+  result,
+  tokens,
+  lang,
+  auto,
+  statusText,
+  windowsProcessed,
+  error,
+  onStop,
+  onReset,
+}: ResultsViewProps) {
   const {claims, rawTranscript} = result;
+  const isEn = lang === 'en';
 
   return (
     <ScrollView
       style={styles.resultsScroll}
       contentContainerStyle={styles.resultsContent}
       showsVerticalScrollIndicator={false}>
+      {/* Live banner: results keep arriving while this is shown. */}
+      {auto && (
+        <View
+          style={[
+            styles.connectionStatus,
+            {
+              backgroundColor: tokens.surfaceRaised,
+              borderColor: tokens.borderHairline,
+            },
+          ]}>
+          <View
+            style={[styles.statusDot, {backgroundColor: tokens.verdictFalseAccent}]}
+          />
+          <View style={styles.statusTextContainer}>
+            <Text style={[styles.connectionTitle, {color: tokens.ink}]}>
+              {isEn ? 'Still listening' : 'Masih mendengarkan'}
+            </Text>
+            <Text style={[styles.connectionDetail, {color: tokens.inkMuted}]}>
+              {(statusText ||
+                (isEn
+                  ? 'New claims are added as they are checked'
+                  : 'Klaim baru ditambahkan begitu diperiksa')) +
+                (windowsProcessed > 0
+                  ? isEn
+                    ? ` · ${windowsProcessed} clip${windowsProcessed === 1 ? '' : 's'} checked`
+                    : ` · ${windowsProcessed} klip diperiksa`
+                  : '')}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* A failure that stopped the run must not be hidden by earlier results. */}
+      {!auto && error && (
+        <View
+          style={[
+            styles.card,
+            {backgroundColor: tokens.surface, borderColor: tokens.verdictFalseAccent},
+          ]}>
+          <Text style={[styles.cardSectionLabel, {color: tokens.verdictFalseInk}]}>
+            {isEn ? 'AUTO-CHECK STOPPED' : 'PEMERIKSAAN OTOMATIS BERHENTI'}
+          </Text>
+          <Text style={[styles.cardSubtext, {color: tokens.inkMuted}]}>{error}</Text>
+        </View>
+      )}
+
       {/* Transcript Card */}
       <View
         style={[
@@ -633,13 +743,26 @@ function ResultsView({result, tokens, onReset}: ResultsViewProps) {
         ))
       )}
 
-      {/* Reset Button */}
+      {/* Stop while auto-listening, reset once it has stopped. */}
       <TouchableOpacity
-        style={[styles.btnPrimary, {backgroundColor: tokens.ink, borderColor: tokens.ink, marginTop: 12}]}
-        onPress={onReset}
+        style={[
+          styles.btnPrimary,
+          {
+            backgroundColor: auto ? tokens.verdictFalseAccent : tokens.ink,
+            borderColor: auto ? tokens.verdictFalseAccent : tokens.ink,
+            marginTop: 12,
+          },
+        ]}
+        onPress={auto ? onStop : onReset}
         activeOpacity={0.8}>
         <Text style={[styles.btnPrimaryText, {color: tokens.surface}]}>
-          START NEW CHECK
+          {auto
+            ? isEn
+              ? 'STOP AUTO CHECK'
+              : 'BERHENTI OTOMATIS'
+            : isEn
+            ? 'START NEW CHECK'
+            : 'MULAI PEMERIKSAAN BARU'}
         </Text>
       </TouchableOpacity>
     </ScrollView>

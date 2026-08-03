@@ -26,6 +26,29 @@ export async function transcribeAudio(
   audioBase64: string,
   mimeType: string = 'audio/wav',
 ): Promise<string> {
+  const { transcript, inaudible } = await transcribeAudioDetailed(audioBase64, mimeType);
+
+  // Silence is a real outcome, not a failure to hide. Say what to change.
+  if (!transcript || inaudible) {
+    throw new Error(
+      'Could not transcribe the audio. Make sure the phone speaker is not muted ' +
+        'and headphones are disconnected.',
+    );
+  }
+
+  return transcript;
+}
+
+/**
+ * Same call, but silence comes back as a result instead of an exception.
+ *
+ * Auto-listen needs this: a quiet window between sentences is normal and must
+ * not tear down the loop or paint an error over a session that is working.
+ */
+export async function transcribeAudioDetailed(
+  audioBase64: string,
+  mimeType: string = 'audio/wav',
+): Promise<{ transcript: string; inaudible: boolean }> {
   const base = (CONFIG.PROXY_URL || '').replace(/\/$/, '');
   if (!base) throw new Error('The Aletheia proxy is not configured.');
 
@@ -52,17 +75,10 @@ export async function transcribeAudio(
   }
 
   const data = await res.json();
-  const transcript = ((data as any).transcript || '').trim();
-
-  // Silence is a real outcome, not a failure to hide. Say what to change.
-  if (!transcript || (data as any).inaudible) {
-    throw new Error(
-      'Could not transcribe the audio. Make sure the phone speaker is not muted ' +
-        'and headphones are disconnected.',
-    );
-  }
-
-  return transcript;
+  return {
+    transcript: ((data as any).transcript || '').trim(),
+    inaudible: Boolean((data as any).inaudible),
+  };
 }
 
 /**
