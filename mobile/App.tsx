@@ -37,6 +37,7 @@ import {
   stopFloatingWidget,
   subscribeFloatingWidgetTap,
 } from './src/audioCapture';
+import {t, type LangCode, LANG_LABELS, LANG_NAMES, SUPPORTED_LANGS, isRTL} from './src/i18n';
 
 // Theme Definitions matching shared/tokens.js
 
@@ -104,7 +105,7 @@ const LIGHT_TOKENS: ColorTokens = {
 
 function App(): React.JSX.Element {
   const [theme, setTheme] = useState<ThemeMode>('dark');
-  const [lang, setLang] = useState<'id' | 'en'>('id');
+  const [lang, setLang] = useState<LangCode>('id');
   const tokens = theme === 'dark' ? DARK_TOKENS : LIGHT_TOKENS;
 
   const {state, startAutoSession, cancelSession, resetSession, checkHeadphones} =
@@ -214,52 +215,46 @@ function App(): React.JSX.Element {
             <View>
               <Text style={[styles.title, {color: tokens.ink}]}>Aletheia</Text>
               <Text style={[styles.tagline, {color: tokens.inkMuted}]}>
-                AI FACT CHECKER
+                {t('tagline', lang)}
               </Text>
             </View>
           </View>
 
           <View style={styles.headerControls}>
-            {/* Language Segmented Control */}
-            <View
+            {/* Language Selector - Compact */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
               style={[
-                styles.segmentedControl,
+                styles.langSelector,
                 {
                   backgroundColor: tokens.surfaceRaised,
                   borderColor: tokens.borderHairline,
                 },
-              ]}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => setLang('id')}
-                style={[
-                  styles.segmentBtn,
-                  lang === 'id' && {backgroundColor: '#FFFFFF'},
-                ]}>
-                <Text
+              ]}
+              contentContainerStyle={styles.langSelectorContent}>
+              {SUPPORTED_LANGS.map((l) => (
+                <TouchableOpacity
+                  key={l}
+                  activeOpacity={0.7}
+                  onPress={() => setLang(l)}
                   style={[
-                    styles.segmentText,
-                    {color: lang === 'id' ? '#000000' : tokens.inkMuted},
+                    styles.langBtn,
+                    lang === l && {
+                      backgroundColor: tokens.focus,
+                      borderColor: tokens.focus,
+                    },
                   ]}>
-                  ID
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => setLang('en')}
-                style={[
-                  styles.segmentBtn,
-                  lang === 'en' && {backgroundColor: '#FFFFFF'},
-                ]}>
-                <Text
-                  style={[
-                    styles.segmentText,
-                    {color: lang === 'en' ? '#000000' : tokens.inkMuted},
-                  ]}>
-                  EN
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    style={[
+                      styles.langBtnText,
+                      {color: lang === l ? '#FFFFFF' : tokens.inkMuted},
+                    ]}>
+                    {LANG_LABELS[l]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
             {/* Theme Toggle */}
             <TouchableOpacity
@@ -277,7 +272,7 @@ function App(): React.JSX.Element {
                   styles.themeLabel,
                   {color: theme === 'dark' ? tokens.ink : tokens.inkMuted},
                 ]}>
-                DARK
+                {t('dark', lang)}
               </Text>
               <View
                 style={[
@@ -302,7 +297,7 @@ function App(): React.JSX.Element {
                   styles.themeLabel,
                   {color: theme === 'light' ? tokens.ink : tokens.inkMuted},
                 ]}>
-                LIGHT
+                {t('light', lang)}
               </Text>
             </TouchableOpacity>
           </View>
@@ -352,9 +347,7 @@ function App(): React.JSX.Element {
       {/* Footer */}
       <View style={[styles.footer, {borderTopColor: tokens.borderHairline}]}>
         <Text style={[styles.footerText, {color: tokens.inkMuted}]}>
-          {lang === 'en'
-            ? 'Open an article or video, then start a check.'
-            : 'Buka artikel atau video, lalu mulai verifikasi.'}
+          {t('open_article_or_video', lang)}
         </Text>
       </View>
     </SafeAreaView>
@@ -374,7 +367,7 @@ interface LaunchViewProps {
   headphonesConnected: boolean;
   error: string | null;
   tokens: ColorTokens;
-  lang: 'id' | 'en';
+  lang: LangCode;
   onListen: () => void;
   onCancel: () => void;
   onRetry: () => void;
@@ -405,52 +398,49 @@ function LaunchView({
   onDismissAutoStartTip,
   onOpenAutoStartSettings,
 }: LaunchViewProps) {
-  const isEn = lang === 'en';
   const isActive = phase === 'recording';
   const isProcessing = phase === 'transcribing' || phase === 'verifying';
 
   let dotColor = tokens.verdictTrueAccent;
-  let statusTitle = isEn ? 'Connected to proxy' : 'Proxy aman terhubung';
-  let statusDetail = isEn ? 'Shared services ready' : 'Layanan bersama siap digunakan';
+  let statusTitle = t('proxy_connected', lang);
+  let statusDetail = t('proxy_connected_detail', lang);
 
   if (headphonesConnected && phase === 'idle') {
     dotColor = tokens.verdictMisleadingAccent;
-    statusTitle = isEn ? 'Headphones detected' : 'Headphone terdeteksi';
-    statusDetail = isEn ? 'Unplug headphones to allow microphone audio capture' : 'Lepaskan headphone agar audio dapat ditangkap mikrofon';
+    statusTitle = t('headphones_detected', lang);
+    statusDetail = t('headphones_detected_detail', lang);
   } else if (error) {
     dotColor = tokens.verdictFalseAccent;
-    statusTitle = isEn ? 'Service error' : 'Error layanan';
+    statusTitle = t('service_error', lang);
     statusDetail = error;
   } else if (auto) {
     dotColor = tokens.verdictFalseAccent;
-    statusTitle = isEn ? 'Auto-checking' : 'Memeriksa otomatis';
+    statusTitle = t('auto_checking', lang);
     // Most short clips contain no verifiable claim, so without this counter a
     // working session and a dead one look identical.
     statusDetail =
-      (statusText || (isEn ? 'Listening continuously — no taps needed' : 'Mendengarkan terus-menerus — tanpa perlu diketuk')) +
+      (statusText || t('listening_continuously', lang)) +
       (windowsProcessed > 0
-        ? isEn
-          ? ` · ${windowsProcessed} clip${windowsProcessed === 1 ? '' : 's'} checked`
-          : ` · ${windowsProcessed} klip diperiksa`
+        ? ` · ${t('clips_checked', lang, {count: windowsProcessed})}`
         : '');
   } else if (isActive) {
     dotColor = tokens.verdictFalseAccent;
-    statusTitle = isEn ? 'Listening to audio' : 'Mendengarkan audio';
-    statusDetail = statusText || (isEn ? 'Capturing microphone stream' : 'Menangkap aliran suara mikrofon');
+    statusTitle = t('listening_to_audio', lang);
+    statusDetail = statusText || t('capturing_mic', lang);
   } else if (isProcessing) {
     dotColor = tokens.verdictMisleadingAccent;
-    statusTitle = isEn ? 'Verifying content' : 'Memeriksa konten';
-    statusDetail = statusText || (isEn ? 'Analyzing claims against trusted sources' : 'Menganalisis klaim terhadap sumber terpercaya');
+    statusTitle = t('verifying_content', lang);
+    statusDetail = statusText || t('analyzing_claims', lang);
   }
 
-  let buttonText = isEn ? 'START AUTO FACT CHECK' : 'MULAI VERIFIKASI OTOMATIS';
+  let buttonText = t('start_auto_fact_check', lang);
   if (auto) {
     // Stop must stay reachable no matter which stage of the cycle is running.
-    buttonText = isEn ? 'STOP AUTO CHECK' : 'BERHENTI OTOMATIS';
+    buttonText = t('stop_auto_check', lang);
   } else if (isActive) {
-    buttonText = isEn ? 'STOP LISTENING' : 'BERHENTI MENDENGARKAN';
+    buttonText = t('stop_listening', lang);
   } else if (isProcessing) {
-    buttonText = isEn ? 'CHECKING CONTENT' : 'MEMERIKSA KONTEN';
+    buttonText = t('checking_content', lang);
   }
 
   return (
@@ -485,21 +475,19 @@ function LaunchView({
           },
         ]}>
         <Text style={[styles.modeCardLabel, {color: tokens.inkMuted}]}>
-          {isEn ? 'CURRENT MODE' : 'MODE SAAT INI'}
+          {t('current_mode', lang)}
         </Text>
         <Text style={[styles.modeCardTitle, {color: tokens.ink}]}>
           {auto
-            ? (isEn ? 'Auto fact checker' : 'Pemeriksa fakta otomatis')
+            ? t('auto_fact_checker', lang)
             : isActive
-            ? (isEn ? 'Listening to playback' : 'Mendengarkan audio')
+            ? t('listening_to_playback', lang)
             : isProcessing
-            ? (isEn ? 'Analyzing claims' : 'Menganalisis klaim')
-            : (isEn ? 'Audio fact checker' : 'Pemeriksa fakta audio')}
+            ? t('analyzing_claims_mode', lang)
+            : t('audio_fact_checker', lang)}
         </Text>
         <Text style={[styles.modeCardDescription, {color: tokens.inkMuted}]}>
-          {isEn
-            ? 'Start once and Aletheia keeps listening: every 15 seconds of audio is transcribed and any new factual claim is checked against trusted sources.'
-            : 'Mulai sekali dan Aletheia terus mendengarkan: setiap 15 detik audio ditranskripsi dan setiap klaim faktual baru diperiksa terhadap sumber terpercaya.'}
+          {t('auto_fact_checker_desc', lang)}
         </Text>
       </View>
 
@@ -511,7 +499,7 @@ function LaunchView({
         ]}>
         <View style={styles.widgetHeaderRow}>
           <Text style={[styles.modeCardLabel, {color: tokens.inkMuted}]}>
-            {isEn ? 'FLOATING WIDGET' : 'WIDGET MELAYANG'}
+            {t('floating_widget', lang)}
           </Text>
           {floatingWidgetEnabled && (
             <View
@@ -521,15 +509,13 @@ function LaunchView({
               ]}>
               <Text
                 style={[styles.widgetStatusText, {color: tokens.verdictTrueInk}]}>
-                {isEn ? 'ACTIVE' : 'AKTIF'}
+                {t('widget_active', lang)}
               </Text>
             </View>
           )}
         </View>
         <Text style={[styles.modeCardDescription, {color: tokens.inkMuted}]}>
-          {isEn
-            ? 'A draggable bubble floats over other apps. Enabling it starts auto-checking; tap the bubble to open the verdict card.'
-            : 'Bubble yang dapat digeser melayang di atas aplikasi lain. Mengaktifkannya langsung memulai pemeriksaan otomatis; ketuk bubble untuk membuka kartu hasil.'}
+          {t('floating_widget_desc', lang)}
         </Text>
         <TouchableOpacity
           style={[
@@ -543,12 +529,8 @@ function LaunchView({
           activeOpacity={0.8}>
           <Text style={[styles.widgetButtonText, {color: tokens.ink}]}>
             {floatingWidgetEnabled
-              ? isEn
-                ? 'HIDE WIDGET'
-                : 'SEMBUNYIKAN WIDGET'
-              : isEn
-              ? 'ENABLE FLOATING WIDGET'
-              : 'AKTIFKAN WIDGET MELAYANG'}
+              ? t('hide_widget', lang)
+              : t('enable_floating_widget', lang)}
           </Text>
         </TouchableOpacity>
 
@@ -563,9 +545,7 @@ function LaunchView({
               },
             ]}>
             <Text style={[styles.autoStartTipText, {color: tokens.inkMuted}]}>
-              {isEn
-                ? 'For best reliability on this device, allow auto-start.'
-                : 'Untuk keandalan terbaik di perangkat ini, izinkan auto-start.'}
+              {t('auto_start_tip', lang)}
             </Text>
             <View style={styles.autoStartActions}>
               <TouchableOpacity
@@ -573,7 +553,7 @@ function LaunchView({
                 activeOpacity={0.7}
                 style={styles.autoStartLinkBtn}>
                 <Text style={[styles.autoStartLink, {color: tokens.focus}]}>
-                  {isEn ? 'OPEN SETTINGS' : 'BUKA PENGATURAN'}
+                  {t('open_settings', lang)}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -596,7 +576,7 @@ function LaunchView({
           onPress={onRetry}
           activeOpacity={0.8}>
           <Text style={[styles.btnPrimaryText, {color: tokens.surface}]}>
-            {isEn ? 'TRY AGAIN' : 'COBA LAGI'}
+            {t('try_again_btn', lang)}
           </Text>
         </TouchableOpacity>
       ) : (
@@ -626,7 +606,7 @@ function LaunchView({
 interface ResultsViewProps {
   result: {claims: ClaimResult[]; rawTranscript: string};
   tokens: ColorTokens;
-  lang: 'id' | 'en';
+  lang: LangCode;
   auto: boolean;
   statusText: string;
   windowsProcessed: number;
@@ -647,7 +627,6 @@ function ResultsView({
   onReset,
 }: ResultsViewProps) {
   const {claims, rawTranscript} = result;
-  const isEn = lang === 'en';
 
   return (
     <ScrollView
@@ -669,17 +648,12 @@ function ResultsView({
           />
           <View style={styles.statusTextContainer}>
             <Text style={[styles.connectionTitle, {color: tokens.ink}]}>
-              {isEn ? 'Still listening' : 'Masih mendengarkan'}
+              {t('still_listening', lang)}
             </Text>
             <Text style={[styles.connectionDetail, {color: tokens.inkMuted}]}>
-              {(statusText ||
-                (isEn
-                  ? 'New claims are added as they are checked'
-                  : 'Klaim baru ditambahkan begitu diperiksa')) +
+              {(statusText || t('new_claims_added', lang)) +
                 (windowsProcessed > 0
-                  ? isEn
-                    ? ` · ${windowsProcessed} clip${windowsProcessed === 1 ? '' : 's'} checked`
-                    : ` · ${windowsProcessed} klip diperiksa`
+                  ? ` · ${t('clips_checked', lang, {count: windowsProcessed})}`
                   : '')}
             </Text>
           </View>
@@ -694,7 +668,7 @@ function ResultsView({
             {backgroundColor: tokens.surface, borderColor: tokens.verdictFalseAccent},
           ]}>
           <Text style={[styles.cardSectionLabel, {color: tokens.verdictFalseInk}]}>
-            {isEn ? 'AUTO-CHECK STOPPED' : 'PEMERIKSAAN OTOMATIS BERHENTI'}
+            {t('auto_check_stopped', lang)}
           </Text>
           <Text style={[styles.cardSubtext, {color: tokens.inkMuted}]}>{error}</Text>
         </View>
@@ -710,7 +684,7 @@ function ResultsView({
           },
         ]}>
         <Text style={[styles.cardSectionLabel, {color: tokens.inkMuted}]}>
-          TRANSCRIPT
+          {t('transcript', lang)}
         </Text>
         <Text style={[styles.transcriptText, {color: tokens.ink}]}>
           {rawTranscript.length > 500
@@ -730,15 +704,15 @@ function ResultsView({
             },
           ]}>
           <Text style={[styles.cardTitle, {color: tokens.ink}]}>
-            No verifiable claims found
+            {t('no_verifiable_claims', lang)}
           </Text>
           <Text style={[styles.cardSubtext, {color: tokens.inkMuted}]}>
-            The audio did not contain clear factual claims that can be verified against sources.
+            {t('no_verifiable_claims_detail', lang)}
           </Text>
         </View>
       ) : (
         claims.map((item, index) => (
-          <ClaimCard key={index} item={item} index={index} tokens={tokens} />
+          <ClaimCard key={index} item={item} index={index} tokens={tokens} lang={lang} />
         ))
       )}
 
@@ -756,12 +730,8 @@ function ResultsView({
         activeOpacity={0.8}>
         <Text style={[styles.btnPrimaryText, {color: tokens.surface}]}>
           {auto
-            ? isEn
-              ? 'STOP AUTO CHECK'
-              : 'BERHENTI OTOMATIS'
-            : isEn
-            ? 'START NEW CHECK'
-            : 'MULAI PEMERIKSAAN BARU'}
+            ? t('stop_auto_check_btn', lang)
+            : t('start_new_check', lang)}
         </Text>
       </TouchableOpacity>
     </ScrollView>
@@ -774,10 +744,12 @@ function ClaimCard({
   item,
   index,
   tokens,
+  lang,
 }: {
   item: ClaimResult;
   index: number;
   tokens: ColorTokens;
+  lang: LangCode;
 }) {
   const verdictStyle = getVerdictColors(item.verdict.verdict, tokens);
 
@@ -792,7 +764,7 @@ function ClaimCard({
       ]}>
       <View style={styles.claimHeader}>
         <Text style={[styles.claimIndex, {color: tokens.inkMuted}]}>
-          CLAIM {index + 1}
+          {t('claim', lang)} {index + 1}
         </Text>
         <View
           style={[
@@ -812,7 +784,7 @@ function ClaimCard({
       <View style={[styles.verdictDetails, {borderTopColor: tokens.borderHairline}]}>
         <View style={styles.confidenceRow}>
           <Text style={[styles.detailLabel, {color: tokens.inkMuted}]}>
-            CONFIDENCE:
+            {t('confidence', lang)}
           </Text>
           <Text
             style={[
@@ -837,7 +809,7 @@ function ClaimCard({
         {item.verdict.key_sources.length > 0 && (
           <View style={styles.sourcesContainer}>
             <Text style={[styles.detailLabel, {color: tokens.inkMuted}]}>
-              SOURCES:
+              {t('sources_label', lang)}
             </Text>
             {item.verdict.key_sources.map((url, i) => (
               <TouchableOpacity
@@ -945,21 +917,27 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
 
-  // Language Segmented Control
-  segmentedControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // Language Selector - Compact
+  langSelector: {
     borderRadius: 8,
     borderWidth: 1,
-    padding: 2,
+    maxHeight: 28,
   },
-  segmentBtn: {
+  langSelectorContent: {
+    paddingHorizontal: 3,
+    paddingVertical: 3,
+    gap: 2,
+    alignItems: 'center',
+  },
+  langBtn: {
     paddingHorizontal: 6,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  segmentText: {
-    fontSize: 10,
+  langBtnText: {
+    fontSize: 9,
     fontWeight: '700',
     letterSpacing: 0.5,
   },

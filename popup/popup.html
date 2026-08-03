@@ -19,23 +19,28 @@
           <img src="../icons/Aletheia-Logo.png" alt="Aletheia" class="logo-icon">
           <div>
             <h1>Aletheia</h1>
-            <p class="tagline">AI Fact-Checker</p>
+            <p class="tagline" data-i18n="tagline">AI Fact-Checker</p>
           </div>
         </div>
         <div class="header-controls">
-          <!-- Language Segmented Control -->
-          <div class="lang-segmented-control" role="group" aria-label="Language">
-            <button type="button" id="lang-btn-id" class="lang-segment active">ID</button>
-            <button type="button" id="lang-btn-en" class="lang-segment">EN</button>
+          <!-- Custom Language Dropdown -->
+          <div class="lang-dropdown" id="lang-dropdown">
+            <button class="lang-dropdown__trigger" id="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="lang-current">EN</span>
+              <span class="lang-dropdown__arrow" aria-hidden="true"></span>
+            </button>
+            <div class="lang-dropdown__menu" id="lang-menu" role="listbox" aria-label="Select language">
+              <!-- Items populated by JS -->
+            </div>
           </div>
           <!-- Theme Toggle -->
           <div class="theme-toggle-container">
-            <span class="theme-label" aria-hidden="true">DARK</span>
+            <span class="theme-label" aria-hidden="true" data-i18n="dark">DARK</span>
             <span class="theme-switch">
               <input type="checkbox" id="theme-toggle" aria-label="Use light theme">
               <span class="slider"></span>
             </span>
-            <span class="theme-label" aria-hidden="true">LIGHT</span>
+            <span class="theme-label" aria-hidden="true" data-i18n="light">LIGHT</span>
           </div>
         </div>
       </div>
@@ -45,23 +50,23 @@
       <div class="connection-status" id="connection-status" role="status">
         <span class="connection-status__dot" aria-hidden="true"></span>
         <div>
-          <div class="connection-status__title" id="connection-title">Menghubungkan ke proxy aman…</div>
-          <div class="connection-status__detail" id="connection-detail">Memeriksa layanan bersama.</div>
+          <div class="connection-status__title" id="connection-title" data-i18n="connecting_proxy">Menghubungkan ke proxy aman…</div>
+          <div class="connection-status__detail" id="connection-detail" data-i18n="checking_services">Memeriksa layanan bersama.</div>
         </div>
       </div>
 
       <section class="mode-card" aria-labelledby="mode-title">
-        <div class="mode-card__label" id="mode-card-label">Halaman saat ini</div>
-        <h2 id="mode-title">Mendeteksi halaman…</h2>
-        <p id="mode-description">Aletheia sedang mendeteksi mode verifikasi terbaik.</p>
+        <div class="mode-card__label" id="mode-card-label" data-i18n="current_page">Halaman saat ini</div>
+        <h2 id="mode-title" data-i18n="detecting_page">Mendeteksi halaman…</h2>
+        <p id="mode-description" data-i18n="detecting_best_mode">Aletheia sedang mendeteksi mode verifikasi terbaik.</p>
       </section>
 
-      <button id="start-fact-check-btn" class="btn-primary" disabled>Mendeteksi tab…</button>
+      <button id="start-fact-check-btn" class="btn-primary" disabled data-i18n="detecting_tab">Mendeteksi tab…</button>
       <p id="action-status" class="action-status" role="status" aria-live="polite"></p>
     </main>
 
     <footer class="popup-footer">
-      <p id="mode-hint">Buka artikel berita atau video YouTube, lalu mulai verifikasi.</p>
+      <p id="mode-hint" data-i18n="open_article_or_video">Buka artikel berita atau video YouTube, lalu mulai verifikasi.</p>
     </footer>
   </div>
 

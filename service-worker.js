@@ -12,12 +12,76 @@ import { extractClaims, retrieveEvidence, generateVerdict } from './modules/pipe
 import { getCachedVerdict, cacheVerdict } from './modules/cache.js';
 import { CONFIG } from './config.js';
 
+// ─── i18n ─────────────────────────────────────────────────────────────────────
+// Lazy-loaded translations for service worker context. The service worker
+// receives `lang` from the sender, so we keep a minimal inline map for the
+// few status strings it sends back to content scripts.
+
+const STATUS_STRINGS = {
+  id: {
+    extracting: 'Mengekstrak klaim faktual…',
+    checking: (cur, tot) => `Memeriksa klaim ${cur} dari ${tot}…`,
+    verdictError: (err) => `Tidak dapat membuat verifikasi: ${err}`,
+  },
+  en: {
+    extracting: 'Extracting factual claims…',
+    checking: (cur, tot) => `Checking claim ${cur} of ${tot}…`,
+    verdictError: (err) => `Could not generate a verdict: ${err}`,
+  },
+  ja: {
+    extracting: '事実クライアントを抽出中…',
+    checking: (cur, tot) => `クライアント ${cur} / ${tot} をチェック中…`,
+    verdictError: (err) => `判定を生成できませんでした: ${err}`,
+  },
+  ko: {
+    extracting: '사실 주장 추출 중…',
+    checking: (cur, tot) => `주장 ${cur}/${tot} 확인 중…`,
+    verdictError: (err) => `판정을 생성할 수 없습니다: ${err}`,
+  },
+  zh: {
+    extracting: '正在提取事实陈述…',
+    checking: (cur, tot) => `正在检查第 ${cur} 条陈述（共 ${tot} 条）…`,
+    verdictError: (err) => `无法生成判定：${err}`,
+  },
+  ar: {
+    extracting: 'جارٍ استخراج المزاعم الواقعية…',
+    checking: (cur, tot) => `جارٍ فحص المزاعم ${cur} من ${tot}…`,
+    verdictError: (err) => `تعذر إنشاء الحكم: ${err}`,
+  },
+  es: {
+    extracting: 'Extrayendo afirmaciones factuales…',
+    checking: (cur, tot) => `Verificando afirmación ${cur} de ${tot}…`,
+    verdictError: (err) => `No se pudo generar el veredicto: ${err}`,
+  },
+  pt: {
+    extracting: 'Extraindo alegações factuais…',
+    checking: (cur, tot) => `Verificando alegação ${cur} de ${tot}…`,
+    verdictError: (err) => `Não foi possível gerar o veredicto: ${err}`,
+  },
+  jv: {
+    extracting: 'Nyupilake klaim faktual…',
+    checking: (cur, tot) => `Mriksa klaim ${cur} saka ${tot}…`,
+    verdictError: (err) => `Ora bisa nggawe putusan: ${err}`,
+  },
+  su: {
+    extracting: 'Nyandak klaim fakta…',
+    checking: (cur, tot) => `Ngecek klaim ${cur} tina ${tot}…`,
+    verdictError: (err) => `Teu tiasa nyieun putusan: ${err}`,
+  },
+};
+
+function getStatus(lang, key, ...args) {
+  const strings = STATUS_STRINGS[lang] || STATUS_STRINGS.id;
+  const val = strings[key];
+  return typeof val === 'function' ? val(...args) : val;
+}
+
 // ─── Message Router ───────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Route by message type; all handlers are async
   if (msg.type === 'CHECK_ARTICLE') {
-    handleArticleCheck(sender.tab?.id, msg.text, msg.title, msg.url);
+    handleArticleCheck(sender.tab?.id, msg.text, msg.title, msg.url, msg.lang);
     sendResponse({ ack: true });
   } else if (msg.type === 'START_YOUTUBE') {
     const targetTabId = msg.tabId || sender.tab?.id;
@@ -57,7 +121,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   } else if (msg.type === 'TRANSCRIPT_CHUNK' || msg.type === 'PROCESS_TRANSCRIPT_CHUNK') {
     (async () => {
       const tabId = sender.tab?.id || await getActiveYouTubeTabId();
-      if (tabId) handleTranscriptChunk(tabId, msg.text);
+      if (tabId) handleTranscriptChunk(tabId, msg.text, msg.lang);
     })();
     sendResponse({ ack: true });
   } else if (msg.type === 'OFFSCREEN_ERROR') {
@@ -151,7 +215,7 @@ async function handleArticleCheck(tabId, text, title, url, langOverride) {
     const lang = langOverride || await getStoredLang();
     sendToTab(tabId, {
       type: 'STATUS_UPDATE',
-      status: lang === 'en' ? 'Extracting factual claims…' : 'Mengekstrak klaim faktual…',
+      status: getStatus(lang, 'extracting'),
       phase: 'extracting',
     });
 
@@ -184,7 +248,7 @@ async function processClaims(tabId, claims, mode, lang = 'id') {
 
     sendToTab(tabId, {
       type: 'STATUS_UPDATE',
-      status: lang === 'en' ? `Checking claim ${i + 1} of ${targetClaims.length}…` : `Memeriksa klaim ${i + 1} dari ${targetClaims.length}…`,
+      status: getStatus(lang, 'checking', i + 1, targetClaims.length),
       phase: 'checking',
       current: i + 1,
       total: targetClaims.length,
@@ -221,7 +285,7 @@ async function processClaims(tabId, claims, mode, lang = 'id') {
         type: 'CLAIM_RESULT',
         claim,
         verdict: 'Unverified',
-        explanation: lang === 'en' ? `Could not generate a verdict: ${err.message}` : `Tidak dapat membuat verifikasi: ${err.message}`,
+        explanation: getStatus(lang, 'verdictError', err.message),
         confidence: 'Low',
         key_sources: [],
         fromCache: false,
@@ -324,10 +388,10 @@ async function handleYouTubeStop() {
   await chrome.storage.session.remove(ACTIVE_YOUTUBE_TAB_KEY);
 }
 
-async function handleTranscriptChunk(tabId, text) {
+async function handleTranscriptChunk(tabId, text, lang) {
   // Spoken claims use the same extraction → evidence → verdict pipeline as an
   // article; the source text simply arrives in short transcript windows.
-  await handleArticleCheck(tabId, text, 'YouTube transcript', '');
+  await handleArticleCheck(tabId, text, 'YouTube transcript', '', lang);
 }
 
 // ─── Keep-alive for debugging ─────────────────────────────────────────────────

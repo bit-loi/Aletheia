@@ -40,6 +40,7 @@ import {
   type ClaimResult,
   type VerificationResult,
 } from './verifyContent';
+import { t, type LangCode, DEFAULT_LANG } from './i18n';
 
 export type SessionPhase =
   | 'idle'
@@ -111,7 +112,7 @@ export function useListenSession() {
   /**
    * Start the full Listen session.
    */
-  const startSession = useCallback(async (lang: 'id' | 'en' = 'id') => {
+  const startSession = useCallback(async (lang: LangCode = DEFAULT_LANG) => {
     // Reset state
     updateState({
       phase: 'idle',
@@ -126,13 +127,10 @@ export function useListenSession() {
       // 1. Check headphones
       const headphones = await checkHeadphones();
       if (headphones) {
-        updateWidgetStatus(lang === 'en' ? 'Aletheia • Headphones detected' : 'Aletheia • Headphone terdeteksi');
+        updateWidgetStatus(`Aletheia • ${t('headphones_detected', lang)}`);
         updateState({
           phase: 'error',
-          error:
-            lang === 'en'
-              ? 'Headphones detected! Unplug headphones or disconnect Bluetooth audio so TikTok/YouTube audio plays through the phone speaker.'
-              : 'Headphone terdeteksi! Harap lepaskan headphone agar audio TikTok/YouTube keluar dari speaker HP.',
+          error: t('headphones_error', lang),
         });
         return;
       }
@@ -140,18 +138,18 @@ export function useListenSession() {
       // 2. Request microphone permission
       const granted = await requestMicrophonePermission();
       if (!granted) {
-        updateWidgetStatus(lang === 'en' ? 'Aletheia • Mic permission required' : 'Aletheia • Izin mikrofon diperlukan');
+        updateWidgetStatus(`Aletheia • ${t('mic_permission_required', lang).slice(0, 30)}`);
         updateState({
           phase: 'error',
-          error: lang === 'en' ? 'Microphone permission is required to listen and verify audio.' : 'Izin mikrofon diperlukan untuk mendengarkan dan memverifikasi audio.',
+          error: t('mic_permission_required', lang),
         });
         return;
       }
 
       // 3. Start recording
       recordingRef.current = true;
-      updateState({ phase: 'recording', statusText: lang === 'en' ? 'Listening…' : 'Mendengarkan…' });
-      updateWidgetStatus(lang === 'en' ? 'Listening…' : 'Mendengarkan…');
+      updateState({ phase: 'recording', statusText: t('listening', lang) });
+      updateWidgetStatus(t('listening', lang));
       // Any session start also expands the floating widget card so the live
       // status text is visible even if the session was started from the app
       // button rather than the bubble.
@@ -161,8 +159,8 @@ export function useListenSession() {
         startRecording({
           onStateChange: (recordState: RecordingState) => {
             if (recordState === 'processing') {
-              updateState({ statusText: lang === 'en' ? 'Processing audio…' : 'Memproses audio…' });
-              updateWidgetStatus(lang === 'en' ? 'Processing audio…' : 'Memproses audio…');
+              updateState({ statusText: t('processing_audio', lang) });
+              updateWidgetStatus(t('processing_audio', lang));
             }
           },
           onError: (err: string) => {
@@ -180,8 +178,8 @@ export function useListenSession() {
       });
 
       // 4. Transcribe
-      updateState({ phase: 'transcribing', statusText: lang === 'en' ? 'Transcribing audio…' : 'Transkripsi audio…' });
-      updateWidgetStatus(lang === 'en' ? 'Transcribing audio…' : 'Transkripsi audio…');
+      updateState({ phase: 'transcribing', statusText: t('transcribing_audio', lang) });
+      updateWidgetStatus(t('transcribing_audio', lang));
       const audioBase64 = await fileToBase64(filePath);
       const transcript = await transcribeAudio(audioBase64, 'audio/wav');
 
@@ -190,8 +188,8 @@ export function useListenSession() {
       updateState({ context: merged });
 
       // 6. Verify
-      updateState({ phase: 'verifying', statusText: lang === 'en' ? 'Verifying claims…' : 'Memeriksa klaim…' });
-      updateWidgetStatus(lang === 'en' ? 'Verifying claims…' : 'Memeriksa klaim…');
+      updateState({ phase: 'verifying', statusText: t('verifying_claims', lang) });
+      updateWidgetStatus(t('verifying_claims', lang));
       const result = await verifyTranscript(merged.combinedText, lang, (status) => {
         updateState({ statusText: status });
         updateWidgetStatus(status);
@@ -201,8 +199,11 @@ export function useListenSession() {
       // same JSON shape the extension's card renderer consumes.
       if (result.claims.length > 0) {
         const top = result.claims[0];
-        const vText = top.verdict.verdict === 'True' ? (lang === 'en' ? 'TRUE' : 'BENAR') : top.verdict.verdict === 'False' ? (lang === 'en' ? 'FALSE' : 'SALAH') : top.verdict.verdict === 'Misleading' ? (lang === 'en' ? 'MISLEADING' : 'MENYESATKAN') : (lang === 'en' ? 'UNVERIFIED' : 'BELUM DIVERIFIKASI');
-        updateWidgetStatus(`${lang === 'en' ? 'Claim' : 'Klaim'}: ${vText}`);
+        const vText = top.verdict.verdict === 'True' ? t('true_label', lang)
+          : top.verdict.verdict === 'False' ? t('false_label', lang)
+          : top.verdict.verdict === 'Misleading' ? t('misleading_label', lang)
+          : t('unverified_label', lang);
+        updateWidgetStatus(`${t('claim_label', lang)}: ${vText}`);
         updateWidgetVerdict(
           JSON.stringify({
             claim: top.claim,
@@ -213,11 +214,11 @@ export function useListenSession() {
           }),
         );
       } else {
-        updateWidgetStatus(lang === 'en' ? 'Aletheia • Done' : 'Aletheia • Selesai');
+        updateWidgetStatus(`Aletheia • ${t('done', lang)}`);
       }
       updateState({ phase: 'done', result, statusText: '' });
     } catch (err: any) {
-      updateWidgetStatus(lang === 'en' ? 'Aletheia • Check failed' : 'Aletheia • Gagal memeriksa');
+      updateWidgetStatus(`Aletheia • ${t('check_failed_error', lang)}`);
       updateState({
         phase: 'error',
         error: err.message || 'An unexpected error occurred.',
@@ -229,7 +230,7 @@ export function useListenSession() {
   // ─── Auto-listen ───────────────────────────────────────────────────────────
 
   const autoRef = useRef(false);
-  const langRef = useRef<'id' | 'en'>('id');
+  const langRef = useRef<LangCode>(DEFAULT_LANG);
   /** A window is being transcribed/verified right now. */
   const busyRef = useRef(false);
   /** Newest window that arrived while busy. Older backlog is dropped. */
@@ -247,7 +248,7 @@ export function useListenSession() {
       pendingChunkRef.current = null;
     }
     await stopContinuousRecording();
-    updateWidgetStatus(langRef.current === 'en' ? 'Aletheia • Stopped' : 'Aletheia • Berhenti');
+    updateWidgetStatus(`Aletheia • ${t('stopped', langRef.current)}`);
     setState((prev) => ({
       ...prev,
       auto: false,
@@ -266,7 +267,6 @@ export function useListenSession() {
    */
   const processChunk = useCallback(async (filePath: string) => {
     const lang = langRef.current;
-    const say = (en: string, id: string) => (lang === 'en' ? en : id);
 
     if (busyRef.current) {
       // Verification is slower than recording, so windows queue up. Keep only
@@ -280,8 +280,8 @@ export function useListenSession() {
     busyRef.current = true;
 
     try {
-      updateState({ phase: 'transcribing', statusText: say('Transcribing audio…', 'Transkripsi audio…') });
-      updateWidgetStatus(say('Transcribing audio…', 'Transkripsi audio…'));
+      updateState({ phase: 'transcribing', statusText: t('transcribing_audio', lang) });
+      updateWidgetStatus(t('transcribing_audio', lang));
 
       const audioBase64 = await fileToBase64(filePath);
       await deleteRecording(filePath);
@@ -293,22 +293,22 @@ export function useListenSession() {
       setState((prev) => ({ ...prev, windowsProcessed: prev.windowsProcessed + 1 }));
 
       if (!transcript || inaudible) {
-        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
-        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+        updateState({ phase: 'recording', statusText: t('listening', lang) });
+        updateWidgetStatus(t('listening', lang));
         return;
       }
 
       // Repeating the same window (a paused video, a looping clip) would burn
       // quota for a result already on screen.
       if (normalizeClaim(transcript) === lastTranscriptRef.current) {
-        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
-        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+        updateState({ phase: 'recording', statusText: t('listening', lang) });
+        updateWidgetStatus(t('listening', lang));
         return;
       }
       lastTranscriptRef.current = normalizeClaim(transcript);
 
-      updateState({ phase: 'verifying', statusText: say('Extracting claims…', 'Mengekstrak klaim…') });
-      updateWidgetStatus(say('Extracting claims…', 'Mengekstrak klaim…'));
+      updateState({ phase: 'verifying', statusText: t('extracting_claims_mobile', lang) });
+      updateWidgetStatus(t('extracting_claims_mobile', lang));
 
       // The per-claim path is used rather than /v1/verify-mobile so already
       // seen claims can be skipped before any search or verdict call is made.
@@ -317,8 +317,8 @@ export function useListenSession() {
 
       const fresh = claims.filter((c) => !seenClaimsRef.current.has(normalizeClaim(c)));
       if (fresh.length === 0) {
-        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
-        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+        updateState({ phase: 'recording', statusText: t('listening', lang) });
+        updateWidgetStatus(t('listening', lang));
         return;
       }
 
@@ -327,12 +327,9 @@ export function useListenSession() {
         const claim = fresh[i];
         seenClaimsRef.current.add(normalizeClaim(claim));
 
-        updateState({
-          statusText: say(`Checking claim ${i + 1} of ${fresh.length}…`, `Memeriksa klaim ${i + 1} dari ${fresh.length}…`),
-        });
-        updateWidgetStatus(
-          say(`Checking claim ${i + 1} of ${fresh.length}…`, `Memeriksa klaim ${i + 1} dari ${fresh.length}…`),
-        );
+        const statusMsg = t('checking_claim_mobile', lang, { current: i + 1, total: fresh.length });
+        updateState({ statusText: statusMsg });
+        updateWidgetStatus(statusMsg);
 
         const evidence = await retrieveEvidence(claim);
         const verdict = await generateVerdict(claim, evidence, lang);
@@ -364,8 +361,8 @@ export function useListenSession() {
       }
 
       if (autoRef.current) {
-        updateState({ phase: 'recording', statusText: say('Listening…', 'Mendengarkan…') });
-        updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+        updateState({ phase: 'recording', statusText: t('listening', lang) });
+        updateWidgetStatus(t('listening', lang));
       }
     } catch (err: any) {
       failuresRef.current += 1;
@@ -375,12 +372,12 @@ export function useListenSession() {
         await stopAutoSession();
         updateState({
           phase: 'error',
-          error: err.message || say('Auto-listen stopped after repeated failures.', 'Mode otomatis berhenti setelah beberapa kegagalan.'),
+          error: err.message || t('auto_mode_stopped', langRef.current),
         });
         return;
       }
-      updateState({ phase: 'recording', statusText: say('Retrying…', 'Mencoba lagi…') });
-      updateWidgetStatus(say('Retrying…', 'Mencoba lagi…'));
+      updateState({ phase: 'recording', statusText: t('retrying', lang) });
+      updateWidgetStatus(t('retrying', lang));
     } finally {
       busyRef.current = false;
       const queued = pendingChunkRef.current;
@@ -395,10 +392,9 @@ export function useListenSession() {
   /**
    * Start auto-listen: one call, then verdicts keep arriving until stopped.
    */
-  const startAutoSession = useCallback(async (lang: 'id' | 'en' = 'id') => {
+  const startAutoSession = useCallback(async (lang: LangCode = DEFAULT_LANG) => {
     if (autoRef.current) return;
     langRef.current = lang;
-    const say = (en: string, id: string) => (lang === 'en' ? en : id);
 
     seenClaimsRef.current = new Set();
     lastTranscriptRef.current = '';
@@ -417,33 +413,27 @@ export function useListenSession() {
 
     const headphones = await checkHeadphones();
     if (headphones) {
-      updateWidgetStatus(say('Aletheia • Headphones detected', 'Aletheia • Headphone terdeteksi'));
+      updateWidgetStatus(`Aletheia • ${t('headphones_detected', lang)}`);
       updateState({
         phase: 'error',
-        error: say(
-          'Headphones detected! Unplug headphones or disconnect Bluetooth audio so TikTok/YouTube audio plays through the phone speaker.',
-          'Headphone terdeteksi! Harap lepaskan headphone agar audio TikTok/YouTube keluar dari speaker HP.',
-        ),
+        error: t('headphones_error', lang),
       });
       return;
     }
 
     const granted = await requestMicrophonePermission();
     if (!granted) {
-      updateWidgetStatus(say('Aletheia • Mic permission required', 'Aletheia • Izin mikrofon diperlukan'));
+      updateWidgetStatus(`Aletheia • ${t('mic_permission_required', lang).slice(0, 30)}`);
       updateState({
         phase: 'error',
-        error: say(
-          'Microphone permission is required to listen and verify audio.',
-          'Izin mikrofon diperlukan untuk mendengarkan dan memverifikasi audio.',
-        ),
+        error: t('mic_permission_required', lang),
       });
       return;
     }
 
     autoRef.current = true;
-    updateState({ phase: 'recording', auto: true, statusText: say('Listening…', 'Mendengarkan…') });
-    updateWidgetStatus(say('Listening…', 'Mendengarkan…'));
+    updateState({ phase: 'recording', auto: true, statusText: t('listening', lang) });
+    updateWidgetStatus(t('listening', lang));
     expandWidget();
 
     try {
@@ -464,11 +454,11 @@ export function useListenSession() {
       });
     } catch (err: any) {
       autoRef.current = false;
-      updateWidgetStatus(say('Aletheia • Check failed', 'Aletheia • Gagal memeriksa'));
+      updateWidgetStatus(`Aletheia • ${t('check_failed_error', lang)}`);
       updateState({
         phase: 'error',
         auto: false,
-        error: err.message || say('Could not start auto-listen.', 'Tidak dapat memulai mode otomatis.'),
+        error: err.message || t('could_not_start_auto', lang),
       });
     }
   }, [checkHeadphones, processChunk, updateState]);
