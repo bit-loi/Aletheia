@@ -294,12 +294,14 @@ class AudioRecorderService : Service() {
 
     private fun broadcastAmplitude(amplitude: Float) {
         val intent = Intent("com.aletheia.app.AMPLITUDE")
+        intent.setPackage(packageName)
         intent.putExtra("amplitude", amplitude)
         sendBroadcast(intent)
     }
 
     private fun broadcastComplete(filePath: String) {
         val intent = Intent("com.aletheia.app.RECORDING_COMPLETE")
+        intent.setPackage(packageName)
         intent.putExtra("filePath", filePath)
         sendBroadcast(intent)
     }
