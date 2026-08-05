@@ -243,7 +243,7 @@ Aturan:
 * Ulah ukur mulangkeun JSON array of strings dina Basa Sunda. Tanpa panjelasan, tanpa format markdown.
 
 Conto hasil:
-["Tumuwuhna PDB Indonesia nepi 5.1% dina Q3 2025.", "WHO nyarioskeun mpox minangka kaayaan darurat kaséhatan global dina Agustus 2024."]",
+["Tumuwuhna PDB Indonesia nepi 5.1% dina Q3 2025.", "WHO nyarioskeun mpox minangka kaayaan darurat kaséhatan global dina Agustus 2024."]`,
 };
 
 const TEXT_LABELS: Record<string, string> = {
