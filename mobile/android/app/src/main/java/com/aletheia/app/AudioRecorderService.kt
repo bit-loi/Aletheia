@@ -56,6 +56,7 @@ class AudioRecorderService : Service() {
         const val SAMPLE_RATE = 16000
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        const val AMPLITUDE_BROADCAST_INTERVAL_MS = 100L
     }
 
     private var audioRecord: AudioRecord? = null
@@ -63,6 +64,7 @@ class AudioRecorderService : Service() {
     @Volatile private var isRecording = false
     private var outputPath: String? = null
     private var continuous = false
+    private var lastAmplitudeBroadcastMs = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -143,10 +145,14 @@ class AudioRecorderService : Service() {
     }
 
     private fun startRecording(path: String, maxDurationMs: Long, continuousMode: Boolean = false) {
-        if (isRecording) return
+        if (isRecording) {
+            broadcastError("Recorder is already running")
+            return
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
+            broadcastError("Microphone permission not granted")
             stopSelf()
             return
         }
@@ -158,39 +164,47 @@ class AudioRecorderService : Service() {
         // Start as foreground service FIRST
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            CHANNEL_CONFIG,
-            AUDIO_FORMAT,
-            bufferSize * 2
-        )
+        try {
+            val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+            if (bufferSize <= 0) throw IllegalStateException("Unsupported audio recorder configuration")
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE,
+                CHANNEL_CONFIG,
+                AUDIO_FORMAT,
+                bufferSize * 2
+            )
 
-        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                throw IllegalStateException("Could not initialize the microphone")
+            }
+
+            isRecording = true
+            audioRecord?.startRecording()
+
+            recordingThread = Thread {
+                if (continuous) recordChunks(bufferSize, maxDurationMs)
+                else writeWavFile(path, bufferSize, maxDurationMs)
+            }.apply { start() }
+        } catch (e: Exception) {
+            releaseRecorder()
+            broadcastError(e.message ?: "Could not start the microphone")
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
-            return
         }
-
-        isRecording = true
-        audioRecord?.startRecording()
-
-        recordingThread = Thread {
-            if (continuous) recordChunks(bufferSize, maxDurationMs)
-            else writeWavFile(path, bufferSize, maxDurationMs)
-        }.apply { start() }
     }
 
     private fun writeWavFile(path: String, bufferSize: Int, maxDurationMs: Long) {
         var bytes = 0L
         try {
             bytes = writeChunk(path, bufferSize, maxDurationMs)
-        } finally {
-            // Always broadcast: a caller awaiting the one-shot promise would
-            // otherwise hang forever on a write failure.
-            try { writeWavHeader(path, bytes) } catch (_: Exception) {}
-            releaseRecorder()
+            writeWavHeader(path, bytes)
             broadcastComplete(path)
+        } catch (e: Exception) {
+            File(path).delete()
+            broadcastError(e.message ?: "Could not record audio")
+        } finally {
+            releaseRecorder()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -218,6 +232,8 @@ class AudioRecorderService : Service() {
                     File(path).delete()
                 }
             }
+        } catch (e: Exception) {
+            broadcastError(e.message ?: "Auto-listen recording failed")
         } finally {
             releaseRecorder()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -255,9 +271,14 @@ class AudioRecorderService : Service() {
                     fos.write(byteBuffer)
                     totalBytesWritten += byteBuffer.size
 
-                    // Calculate RMS amplitude and broadcast it
-                    val rms = calculateRms(buffer, read)
-                    broadcastAmplitude(rms)
+                    // Bridge/UI updates are much slower than AudioRecord reads.
+                    // Throttle broadcasts so amplitude animation cannot force a
+                    // full React render for every native buffer.
+                    val now = System.currentTimeMillis()
+                    if (now - lastAmplitudeBroadcastMs >= AMPLITUDE_BROADCAST_INTERVAL_MS) {
+                        lastAmplitudeBroadcastMs = now
+                        broadcastAmplitude(calculateRms(buffer, read))
+                    }
                 }
             }
         } finally {
@@ -303,6 +324,13 @@ class AudioRecorderService : Service() {
         val intent = Intent("com.aletheia.app.RECORDING_COMPLETE")
         intent.setPackage(packageName)
         intent.putExtra("filePath", filePath)
+        sendBroadcast(intent)
+    }
+
+    private fun broadcastError(message: String) {
+        val intent = Intent("com.aletheia.app.RECORDING_ERROR")
+        intent.setPackage(packageName)
+        intent.putExtra("message", message)
         sendBroadcast(intent)
     }
 

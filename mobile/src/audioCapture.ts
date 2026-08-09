@@ -32,6 +32,33 @@ let currentCallbacks: RecordingCallbacks | null = null;
 let autoStopTimer: ReturnType<typeof setTimeout> | null = null;
 let emitterSubscription: any = null;
 
+function clearOneShotResources(): void {
+  if (autoStopTimer) {
+    clearTimeout(autoStopTimer);
+    autoStopTimer = null;
+  }
+  emitterSubscription?.remove();
+  emitterSubscription = null;
+}
+
+function completeOneShot(filePath: string): void {
+  const callbacks = currentCallbacks;
+  if (!callbacks) return;
+  currentCallbacks = null;
+  clearOneShotResources();
+  callbacks.onStateChange('processing');
+  callbacks.onComplete(filePath);
+}
+
+function failOneShot(message: string): void {
+  const callbacks = currentCallbacks;
+  if (!callbacks) return;
+  currentCallbacks = null;
+  clearOneShotResources();
+  callbacks.onStateChange('error');
+  callbacks.onError(message);
+}
+
 /**
  * Start microphone recording.
  *
@@ -51,38 +78,33 @@ export async function startRecording(callbacks: RecordingCallbacks): Promise<voi
   currentCallbacks = callbacks;
   callbacks.onStateChange('recording');
 
+  // Subscribe before asking native code to start. The native promise resolves
+  // only when recording finishes; awaiting it here used to install this
+  // listener and the safety timer after the audio had already been captured.
+  if (AudioRecorderModule.addListener) {
+    const emitter = new NativeEventEmitter(AudioRecorderModule);
+    emitterSubscription = emitter.addListener('onAmplitude', (event) => {
+      currentCallbacks?.onAmplitude?.(event.amplitude);
+    });
+  }
+
+  autoStopTimer = setTimeout(() => {
+    stopRecording();
+  }, CONFIG.MAX_RECORD_DURATION_MS + 1000);
+
   try {
-    // The native module handles:
-    //   - Android: starting the foreground service, showing persistent notification,
-    //     configuring MediaRecorder with mic source
-    //   - iOS: configuring AVAudioSession, starting AVAudioRecorder
-    const outputPath = await AudioRecorderModule.startRecording({
+    const recordingPromise: Promise<string> = AudioRecorderModule.startRecording({
       maxDurationMs: CONFIG.MAX_RECORD_DURATION_MS,
       sampleRate: 16000,
       channels: 1,
       encoding: 'pcm_16bit',
       outputFormat: 'wav',
     });
-
-    // Listen for amplitude updates (for the pulsing animation)
-    if (AudioRecorderModule.addListener) {
-      const emitter = new NativeEventEmitter(AudioRecorderModule);
-      emitterSubscription = emitter.addListener('onAmplitude', (event) => {
-        currentCallbacks?.onAmplitude?.(event.amplitude);
-      });
-    }
-
-    // Auto-stop timer as a safety net (the native module also auto-stops)
-    autoStopTimer = setTimeout(() => {
-      stopRecording();
-    }, CONFIG.MAX_RECORD_DURATION_MS + 1000);
-
-    console.log('[Aletheia] Recording started, output:', outputPath);
+    recordingPromise
+      .then((filePath) => completeOneShot(filePath))
+      .catch((err: Error) => failOneShot(`Failed to record audio: ${err.message}`));
   } catch (err: any) {
-    currentCallbacks = null;
-    callbacks.onStateChange('error');
-    callbacks.onError(`Failed to start recording: ${err.message}`);
-    throw err;
+    failOneShot(`Failed to start recording: ${err.message}`);
   }
 }
 
@@ -90,32 +112,16 @@ export async function startRecording(callbacks: RecordingCallbacks): Promise<voi
  * Stop the current recording and return the file path.
  */
 export async function stopRecording(): Promise<string | null> {
-  if (autoStopTimer) {
-    clearTimeout(autoStopTimer);
-    autoStopTimer = null;
-  }
-
-  if (emitterSubscription) {
-    emitterSubscription.remove();
-    emitterSubscription = null;
-  }
-
   if (!currentCallbacks) {
     return null;
   }
 
-  const callbacks = currentCallbacks;
-
   try {
-    callbacks.onStateChange('processing');
     const filePath: string = await AudioRecorderModule.stopRecording();
-    callbacks.onComplete(filePath);
-    currentCallbacks = null;
+    completeOneShot(filePath);
     return filePath;
   } catch (err: any) {
-    callbacks.onStateChange('error');
-    callbacks.onError(`Failed to stop recording: ${err.message}`);
-    currentCallbacks = null;
+    failOneShot(`Failed to stop recording: ${err.message}`);
     return null;
   }
 }
@@ -139,6 +145,7 @@ interface ContinuousCallbacks {
 let continuousCallbacks: ContinuousCallbacks | null = null;
 let chunkSubscription: any = null;
 let continuousAmplitudeSubscription: any = null;
+let continuousErrorSubscription: any = null;
 
 /**
  * Start auto-listen: the microphone stays open and a finished WAV arrives
@@ -164,6 +171,9 @@ export async function startContinuousRecording(
   continuousAmplitudeSubscription = emitter.addListener('onAmplitude', (event) => {
     continuousCallbacks?.onAmplitude?.(event.amplitude);
   });
+  continuousErrorSubscription = emitter.addListener('onRecordingError', (event) => {
+    continuousCallbacks?.onError(event?.message || 'Audio recording failed.');
+  });
 
   try {
     await AudioRecorderModule.startContinuousRecording({
@@ -186,11 +196,15 @@ export async function stopContinuousRecording(): Promise<void> {
   chunkSubscription = null;
   continuousAmplitudeSubscription?.remove();
   continuousAmplitudeSubscription = null;
+  continuousErrorSubscription?.remove();
+  continuousErrorSubscription = null;
   continuousCallbacks = null;
 
   try {
     await AudioRecorderModule.stopContinuousRecording();
-  } catch {}
+  } catch (err) {
+    console.warn('[Aletheia] Failed to stop native auto-listen service:', err);
+  }
 }
 
 export function isContinuousRecording(): boolean {
@@ -200,8 +214,11 @@ export function isContinuousRecording(): boolean {
 /** Drop a chunk file once its audio has been uploaded. */
 export async function deleteRecording(filePath: string): Promise<void> {
   try {
-    await AudioRecorderModule.deleteRecording(filePath);
-  } catch {}
+    const deleted = await AudioRecorderModule.deleteRecording(filePath);
+    if (!deleted) console.warn('[Aletheia] Recording file was not deleted:', filePath);
+  } catch (err) {
+    console.warn('[Aletheia] Failed to delete recording file:', err);
+  }
 }
 
 /**

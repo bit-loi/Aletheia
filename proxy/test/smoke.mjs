@@ -70,6 +70,16 @@ await check(
   (r, b) => r.status === 400 && /query/.test(b.error || '')
 );
 
+await check(
+  'malformed JSON is a client error',
+  new Request('https://proxy.test/v1/chat', {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: '{',
+  }),
+  (r, b) => r.status === 400 && b.error === 'invalid json'
+);
+
 // --- mobile auth ---
 // The mobile app sends no Origin at all. The bearer token is the only gate, so
 // these four cases are what stand between the Gemini/Tavily keys and the world.
@@ -117,6 +127,12 @@ await check(
   (r, b) => r.status === 413 && b.error === 'payload too large'
 );
 
+await check(
+  'the body cap measures UTF-8 bytes rather than JavaScript characters',
+  postMobile('/v1/chat', { messages: [{ role: 'user', content: '😀'.repeat(40 * 1024) }] }),
+  (r, b) => r.status === 413 && b.error === 'payload too large'
+);
+
 const search = await check(
   'search falls through Tavily (no key) to Wikipedia',
   post('/v1/search', { query: 'Indonesia gross domestic product', max_results: 3 }),
@@ -134,6 +150,10 @@ await check(
 );
 
 const realFetch = globalThis.fetch;
+let forcedGeminiTranscribeStatus = null;
+let geminiTranscribeCalls = 0;
+let openRouterContents = [];
+let wikipediaSearchResults = [{ title: 'Tokyo', snippet: 'Tokyo is the capital of Japan.' }];
 globalThis.fetch = async (input, init) => {
   if (String(input) === 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions') {
     return new Response(null, { status: 400 });
@@ -141,9 +161,12 @@ globalThis.fetch = async (input, init) => {
   if (String(input) === 'https://openrouter.ai/api/v1/chat/completions') {
     const authorized = init?.headers?.authorization === 'Bearer server-only-openrouter';
     const body = JSON.parse(init?.body || '{}');
+    const content = openRouterContents.length
+      ? openRouterContents.shift()
+      : '["OpenRouter fallback works."]';
     return authorized && body.model === 'google/gemma-4-26b-a4b-it:free'
       ? new Response(JSON.stringify({
-          choices: [{ message: { content: '["OpenRouter fallback works."]' } }],
+          choices: [{ message: { content } }],
         }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -151,6 +174,10 @@ globalThis.fetch = async (input, init) => {
       : new Response(null, { status: 401 });
   }
   if (String(input).includes(':generateContent')) {
+    geminiTranscribeCalls++;
+    if (forcedGeminiTranscribeStatus) {
+      return new Response(null, { status: forcedGeminiTranscribeStatus });
+    }
     const authorized = init?.headers?.['x-goog-api-key'] === 'server-only-secret';
     const body = JSON.parse(init?.body || '{}');
     const audioPart = body.contents?.[0]?.parts?.find((p) => p.inline_data);
@@ -168,6 +195,11 @@ globalThis.fetch = async (input, init) => {
           headers: { 'content-type': 'application/json' },
         })
       : new Response(null, { status: 401 });
+  }
+  if (String(input).startsWith('https://en.wikipedia.org/w/api.php')) {
+    return new Response(JSON.stringify({
+      query: { search: wikipediaSearchResults },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
   }
   return realFetch(input, init);
 };
@@ -195,6 +227,97 @@ await check(
     !JSON.stringify(b).includes('server-only-secret'),
   { ...env, GEMINI_API_KEY: 'server-only-secret', GEMINI_TRANSCRIBE_MODEL: 'gemini-2.5-flash' }
 );
+
+forcedGeminiTranscribeStatus = 429;
+geminiTranscribeCalls = 0;
+await check(
+  'transcribe retries Gemini 429 once, then falls through to Workers AI',
+  postMobile('/v1/transcribe', { audio: 'UklGRiQAAABXQVZF', mimeType: 'audio/wav' }),
+  (r, b) => r.status === 200 &&
+    b.transcript === 'Cloudflare fallback transcript.' &&
+    b.provider === 'workers_ai' &&
+    geminiTranscribeCalls === 2,
+  {
+    ...env,
+    GEMINI_API_KEY: 'server-only-secret',
+    TRANSCRIBE_RETRY_BASE_MS: '0',
+    AI: {
+      run: async (model, input) => {
+        if (model !== '@cf/openai/whisper-large-v3-turbo') throw new Error('wrong model');
+        if (!input.audio || input.task !== 'transcribe' || input.vad_filter !== true) {
+          throw new Error('wrong input');
+        }
+        return { text: 'Cloudflare fallback transcript.' };
+      },
+    },
+  }
+);
+forcedGeminiTranscribeStatus = null;
+
+await check(
+  'Workers AI can transcribe when Gemini is not configured',
+  postMobile('/v1/transcribe', { audio: 'UklGRiQAAABXQVZF', mimeType: 'audio/wav' }),
+  (r, b) => r.status === 200 && b.provider === 'workers_ai' && b.transcript === 'AI only.',
+  { ...env, AI: { run: async () => ({ text: 'AI only.' }) } }
+);
+
+await check(
+  'short noisy transcripts never reach claim extraction',
+  postMobile('/v1/verify-mobile', { transcript: 'パイ4000', lang: 'ja' }),
+  (r, b) => r.status === 200 && Array.isArray(b.claims) && b.claims.length === 0,
+  { ...env, OPENROUTER_API_KEY: 'server-only-openrouter', LLM_CHAIN: 'openrouter' }
+);
+
+openRouterContents = ['The model wrote prose instead of JSON.'];
+await check(
+  'malformed claim output fails closed instead of becoming a claim',
+  postMobile('/v1/verify-mobile', { transcript: 'Tokyo is the capital city of Japan.', lang: 'en' }),
+  (r, b) => r.status === 502 && b.error === 'verification is unavailable',
+  { ...env, OPENROUTER_API_KEY: 'server-only-openrouter', LLM_CHAIN: 'openrouter' }
+);
+
+const trustedSource = 'https://en.wikipedia.org/wiki/Tokyo';
+openRouterContents = [
+  '["Tokyo is the capital city of Japan."]',
+  JSON.stringify({
+    verdict: 'True',
+    explanation: 'The supplied source supports the claim.',
+    confidence: 'High',
+    key_sources: [trustedSource, 'https://evil.example/fabricated', 'javascript:alert(1)'],
+  }),
+];
+await check(
+  'verify-mobile keeps only source URLs returned by evidence search',
+  postMobile('/v1/verify-mobile', { transcript: 'Tokyo is the capital city of Japan.', lang: 'en' }),
+  (r, b) => r.status === 200 &&
+    b.claims?.[0]?.verdict?.key_sources?.length === 1 &&
+    b.claims[0].verdict.key_sources[0] === trustedSource,
+  {
+    ...env,
+    OPENROUTER_API_KEY: 'server-only-openrouter',
+    LLM_CHAIN: 'openrouter',
+    SEARCH_CHAIN: 'wikipedia',
+  }
+);
+
+wikipediaSearchResults = [];
+openRouterContents = ['["Tokyo is the capital city of Japan."]'];
+await check(
+  'no evidence is forced to Unverified without asking an LLM to invent a verdict',
+  postMobile('/v1/verify-mobile', { transcript: 'Tokyo is the capital city of Japan.', lang: 'en' }),
+  (r, b) => r.status === 200 &&
+    b.verdict === 'Unverified' &&
+    b.confidence === 'Low' &&
+    b.sources?.length === 0 &&
+    openRouterContents.length === 0,
+  {
+    ...env,
+    OPENROUTER_API_KEY: 'server-only-openrouter',
+    LLM_CHAIN: 'openrouter',
+    SEARCH_CHAIN: 'wikipedia',
+  }
+);
+wikipediaSearchResults = [{ title: 'Tokyo', snippet: 'Tokyo is the capital of Japan.' }];
 await check(
   'Gemini server secret exchanges for a short-lived Live token',
   post('/v1/gemini-live-token', {}),

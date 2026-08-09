@@ -55,7 +55,12 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 
 /** Claim text → cache key, mirroring the extension's normalizeClaim. */
 function normalizeClaim(claim: string): string {
-  return claim.toLowerCase().trim().replace(/\s+/g, ' ');
+  return claim
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
 }
 
 export interface ListenSessionState {
@@ -180,7 +185,7 @@ export function useListenSession() {
       // 4. Transcribe
       updateState({ phase: 'transcribing', statusText: t('transcribing_audio', lang) });
       updateWidgetStatus(t('transcribing_audio', lang));
-      const audioBase64 = await fileToBase64(filePath);
+      const audioBase64 = await fileToBase64(filePath).finally(() => deleteRecording(filePath));
       const transcript = await transcribeAudio(audioBase64, 'audio/wav');
 
       // 5. Merge context (audio-only)
@@ -204,15 +209,17 @@ export function useListenSession() {
           : top.verdict.verdict === 'Misleading' ? t('misleading_label', lang)
           : t('unverified_label', lang);
         updateWidgetStatus(`${t('claim_label', lang)}: ${vText}`);
-        updateWidgetVerdict(
-          JSON.stringify({
-            claim: top.claim,
-            verdict: top.verdict.verdict,
-            explanation: top.verdict.explanation,
-            confidence: top.verdict.confidence,
-            key_sources: top.verdict.key_sources,
-          }),
-        );
+        for (const claimResult of result.claims) {
+          updateWidgetVerdict(
+            JSON.stringify({
+              claim: claimResult.claim,
+              verdict: claimResult.verdict.verdict,
+              explanation: claimResult.verdict.explanation,
+              confidence: claimResult.verdict.confidence,
+              key_sources: claimResult.verdict.key_sources,
+            }),
+          );
+        }
       } else {
         updateWidgetStatus(`Aletheia • ${t('done', lang)}`);
       }
@@ -287,12 +294,12 @@ export function useListenSession() {
       await deleteRecording(filePath);
 
       const { transcript, inaudible } = await transcribeAudioDetailed(audioBase64, 'audio/wav');
-      failuresRef.current = 0;
       if (!autoRef.current) return;
 
       setState((prev) => ({ ...prev, windowsProcessed: prev.windowsProcessed + 1 }));
 
       if (!transcript || inaudible) {
+        failuresRef.current = 0;
         updateState({ phase: 'recording', statusText: t('listening', lang) });
         updateWidgetStatus(t('listening', lang));
         return;
@@ -300,13 +307,13 @@ export function useListenSession() {
 
       // Repeating the same window (a paused video, a looping clip) would burn
       // quota for a result already on screen.
-      if (normalizeClaim(transcript) === lastTranscriptRef.current) {
+      const normalizedTranscript = normalizeClaim(transcript);
+      if (normalizedTranscript === lastTranscriptRef.current) {
+        failuresRef.current = 0;
         updateState({ phase: 'recording', statusText: t('listening', lang) });
         updateWidgetStatus(t('listening', lang));
         return;
       }
-      lastTranscriptRef.current = normalizeClaim(transcript);
-
       updateState({ phase: 'verifying', statusText: t('extracting_claims_mobile', lang) });
       updateWidgetStatus(t('extracting_claims_mobile', lang));
 
@@ -315,8 +322,18 @@ export function useListenSession() {
       const claims = await extractClaims(transcript, lang);
       if (!autoRef.current) return;
 
+      if (claims.length === 0) {
+        lastTranscriptRef.current = normalizedTranscript;
+        failuresRef.current = 0;
+        updateState({ phase: 'recording', statusText: t('listening', lang) });
+        updateWidgetStatus(t('listening', lang));
+        return;
+      }
+
       const fresh = claims.filter((c) => !seenClaimsRef.current.has(normalizeClaim(c)));
       if (fresh.length === 0) {
+        lastTranscriptRef.current = normalizedTranscript;
+        failuresRef.current = 0;
         updateState({ phase: 'recording', statusText: t('listening', lang) });
         updateWidgetStatus(t('listening', lang));
         return;
@@ -325,7 +342,6 @@ export function useListenSession() {
       for (let i = 0; i < fresh.length; i++) {
         if (!autoRef.current) return;
         const claim = fresh[i];
-        seenClaimsRef.current.add(normalizeClaim(claim));
 
         const statusMsg = t('checking_claim_mobile', lang, { current: i + 1, total: fresh.length });
         updateState({ statusText: statusMsg });
@@ -334,6 +350,7 @@ export function useListenSession() {
         const evidence = await retrieveEvidence(claim);
         const verdict = await generateVerdict(claim, evidence, lang);
         if (!autoRef.current) return;
+        seenClaimsRef.current.add(normalizeClaim(claim));
 
         const claimResult: ClaimResult = { claim, verdict };
 
@@ -353,14 +370,21 @@ export function useListenSession() {
           ...prev,
           result: {
             claims: [...(prev.result?.claims ?? []), claimResult],
-            rawTranscript: prev.result
-              ? `${prev.result.rawTranscript}\n${transcript}`.trim()
-              : transcript,
+            // A window can yield several claims, but its transcript belongs in
+            // the history once. React applies these functional updates in
+            // order, so only the first result from this window appends it.
+            rawTranscript: i === 0
+              ? (prev.result
+                  ? `${prev.result.rawTranscript}\n${transcript}`.trim()
+                  : transcript)
+              : (prev.result?.rawTranscript ?? transcript),
           },
         }));
       }
 
       if (autoRef.current) {
+        lastTranscriptRef.current = normalizedTranscript;
+        failuresRef.current = 0;
         updateState({ phase: 'recording', statusText: t('listening', lang) });
         updateWidgetStatus(t('listening', lang));
       }
@@ -446,7 +470,22 @@ export function useListenSession() {
           processChunk(path);
         },
         onError: (message) => {
-          updateState({ phase: 'error', auto: false, error: message });
+          if (!autoRef.current) return;
+          autoRef.current = false;
+          busyRef.current = false;
+          const pending = pendingChunkRef.current;
+          pendingChunkRef.current = null;
+          if (pending) deleteRecording(pending);
+          stopContinuousRecording().finally(() => {
+            updateWidgetStatus(`Aletheia • ${t('check_failed_error', langRef.current)}`);
+            updateState({
+              phase: 'error',
+              auto: false,
+              amplitude: 0,
+              statusText: '',
+              error: message,
+            });
+          });
         },
         onAmplitude: (amp) => {
           updateState({ amplitude: amp });
@@ -468,6 +507,9 @@ export function useListenSession() {
     return () => {
       if (autoRef.current) {
         autoRef.current = false;
+        const pending = pendingChunkRef.current;
+        pendingChunkRef.current = null;
+        if (pending) deleteRecording(pending);
         stopContinuousRecording();
       }
     };

@@ -65,6 +65,22 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    private val errorReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val message = intent?.getStringExtra("message") ?: "Audio recording failed"
+            if (continuousMode) {
+                continuousMode = false
+                sendEvent("onRecordingError", Arguments.createMap().apply {
+                    putString("message", message)
+                })
+            } else {
+                recordingPromise?.reject("RECORDING_FAILED", message)
+                recordingPromise = null
+            }
+            unregisterReceivers()
+        }
+    }
+
     private var receiversRegistered = false
 
     private fun registerReceivers() {
@@ -81,6 +97,11 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
                 IntentFilter("com.aletheia.app.RECORDING_COMPLETE"),
                 Context.RECEIVER_NOT_EXPORTED
             )
+            context.registerReceiver(
+                errorReceiver,
+                IntentFilter("com.aletheia.app.RECORDING_ERROR"),
+                Context.RECEIVER_NOT_EXPORTED
+            )
         } else {
             context.registerReceiver(
                 amplitudeReceiver,
@@ -89,6 +110,10 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
             context.registerReceiver(
                 completeReceiver,
                 IntentFilter("com.aletheia.app.RECORDING_COMPLETE")
+            )
+            context.registerReceiver(
+                errorReceiver,
+                IntentFilter("com.aletheia.app.RECORDING_ERROR")
             )
         }
         receiversRegistered = true
@@ -99,6 +124,7 @@ class AudioRecorderModule(reactContext: ReactApplicationContext) :
         try {
             reactApplicationContext.unregisterReceiver(amplitudeReceiver)
             reactApplicationContext.unregisterReceiver(completeReceiver)
+            reactApplicationContext.unregisterReceiver(errorReceiver)
         } catch (_: Exception) {}
         receiversRegistered = false
     }

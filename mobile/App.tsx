@@ -14,9 +14,7 @@ import {
   AppState,
   Image,
   Linking,
-  LogBox,
   Platform,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -24,8 +22,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 
-LogBox.ignoreAllLogs();
 import {useListenSession, type SessionPhase} from './src/useListenSession';
 import type {ClaimResult} from './src/verifyContent';
 import {
@@ -102,6 +100,21 @@ const LIGHT_TOKENS: ColorTokens = {
   verdictUnverifiedAccent: '#71717A',
   verdictUnverifiedInk: '#52525B',
 };
+
+const AppStatusBar = React.memo(function StatusBarView({
+  theme,
+  backgroundColor,
+}: {
+  theme: ThemeMode;
+  backgroundColor: string;
+}) {
+  return (
+    <StatusBar
+      barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+      backgroundColor={backgroundColor}
+    />
+  );
+});
 
 function App(): React.JSX.Element {
   const [theme, setTheme] = useState<ThemeMode>('dark');
@@ -199,10 +212,7 @@ function App(): React.JSX.Element {
 
   return (
     <SafeAreaView style={[styles.container, {backgroundColor: tokens.surface}]}>
-      <StatusBar
-        barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={tokens.surface}
-      />
+      <AppStatusBar theme={theme} backgroundColor={tokens.surface} />
 
       {/* Popup Header */}
       <View style={[styles.header, {borderBottomColor: tokens.borderHairline}]}>

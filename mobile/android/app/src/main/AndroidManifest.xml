@@ -22,7 +22,6 @@
          The type itself needs no dedicated permission — it exists for apps
          whose foreground service purpose has no standard category (here:
          keeping a draggable fact-check bubble over other apps). -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
