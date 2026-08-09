@@ -1,6 +1,7 @@
 package com.aletheia.app
 
 import android.webkit.WebView
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * FloatingWidgetController: singleton direct bridge between React Native
@@ -20,7 +21,18 @@ object FloatingWidgetController {
     @Volatile private var webView: WebView? = null
     @Volatile private var pageLoaded = false
     @Volatile private var pendingStatus: String? = null
-    @Volatile private var pendingVerdict: String? = null
+
+    // The card WebView is not built until the bubble is first expanded, so
+    // every verdict found while the user is still scrolling arrives with no
+    // view to render into. A single slot dropped all but the newest, which is
+    // the opposite of what the widget is for: the whole point is to read the
+    // results without going back to the app. overlay.html appends to a feed,
+    // so queue them and replay the feed in order once the page is up.
+    private val pendingVerdicts = ConcurrentLinkedQueue<String>()
+
+    // Bounded so a long session cannot grow this without limit. Older verdicts
+    // are dropped first; the feed keeps the most recent MAX_PENDING_VERDICTS.
+    private const val MAX_PENDING_VERDICTS = 50
 
     @Volatile private var tapCallback: (() -> Unit)? = null
     @Volatile private var service: FloatingWidgetService? = null
@@ -35,16 +47,20 @@ object FloatingWidgetController {
         webView = null
         pageLoaded = false
         pendingStatus = null
-        pendingVerdict = null
+        pendingVerdicts.clear()
     }
 
     /** Called from WebViewClient.onPageFinished so early updates are queued. */
     fun onPageLoaded() {
         pageLoaded = true
         pendingStatus?.let { updateStatus(it) }
-        pendingVerdict?.let { updateVerdict(it) }
         pendingStatus = null
-        pendingVerdict = null
+        // Drain oldest-first so the feed reads in the order the claims were
+        // checked. updateVerdict now renders directly, since pageLoaded is set.
+        while (true) {
+            val queued = pendingVerdicts.poll() ?: break
+            updateVerdict(queued)
+        }
     }
 
     /** RN registers this so a bubble tap can start the existing Listen flow. */
@@ -92,7 +108,8 @@ object FloatingWidgetController {
     fun updateVerdict(verdictJson: String) {
         val view = webView
         if (view == null || !pageLoaded) {
-            pendingVerdict = verdictJson
+            while (pendingVerdicts.size >= MAX_PENDING_VERDICTS) pendingVerdicts.poll()
+            pendingVerdicts.add(verdictJson)
             return
         }
         view.post {
