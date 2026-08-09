@@ -20,31 +20,53 @@ object FloatingWidgetController {
     @Volatile private var webView: WebView? = null
     @Volatile private var pageLoaded = false
     @Volatile private var pendingStatus: String? = null
-    @Volatile private var pendingVerdict: String? = null
+
+    // The card WebView is not built until the bubble is first expanded, so
+    // every verdict found while the user is still scrolling arrives with no
+    // view to render into. A single slot dropped all but the newest, which is
+    // the opposite of what the widget is for: the whole point is to read the
+    // results without going back to the app. overlay.html appends to a feed,
+    // so queue them and replay the feed in order once the page is up.
+    //
+    // Guarded by the monitor rather than a concurrent collection: the hazard is
+    // the check-then-act across `pageLoaded` and the queue, which a thread-safe
+    // collection does not cover. Without the lock a verdict can be enqueued
+    // just after onPageLoaded() drains, and then never render at all.
+    private val pendingVerdicts = ArrayDeque<String>()
+
+    // Bounded so a long session cannot grow this without limit. Older verdicts
+    // are dropped first; the feed keeps the most recent MAX_PENDING_VERDICTS.
+    private const val MAX_PENDING_VERDICTS = 50
 
     @Volatile private var tapCallback: (() -> Unit)? = null
     @Volatile private var service: FloatingWidgetService? = null
 
     /** The service attaches its card WebView here after inflating it. */
+    @Synchronized
     fun attach(view: WebView) {
         webView = view
         pageLoaded = false
     }
 
+    @Synchronized
     fun detach() {
         webView = null
         pageLoaded = false
         pendingStatus = null
-        pendingVerdict = null
+        pendingVerdicts.clear()
     }
 
     /** Called from WebViewClient.onPageFinished so early updates are queued. */
+    @Synchronized
     fun onPageLoaded() {
         pageLoaded = true
         pendingStatus?.let { updateStatus(it) }
-        pendingVerdict?.let { updateVerdict(it) }
         pendingStatus = null
-        pendingVerdict = null
+        // Drain oldest-first so the feed reads in the order the claims were
+        // checked. updateVerdict now renders directly, since pageLoaded is set.
+        while (pendingVerdicts.isNotEmpty()) {
+            updateVerdict(pendingVerdicts.removeFirst())
+        }
     }
 
     /** RN registers this so a bubble tap can start the existing Listen flow. */
@@ -68,6 +90,7 @@ object FloatingWidgetController {
     fun isWidgetActive(): Boolean = service != null
 
     /** Push a live status string ("Mendengarkan…", "Memeriksa klaim…"). */
+    @Synchronized
     fun updateStatus(statusText: String) {
         val view = webView
         if (view == null || !pageLoaded) {
@@ -89,10 +112,12 @@ object FloatingWidgetController {
      * { claim, verdict, explanation, confidence, key_sources }) so the
      * WebView's renderVerdict paints the extension card.
      */
+    @Synchronized
     fun updateVerdict(verdictJson: String) {
         val view = webView
         if (view == null || !pageLoaded) {
-            pendingVerdict = verdictJson
+            while (pendingVerdicts.size >= MAX_PENDING_VERDICTS) pendingVerdicts.removeFirst()
+            pendingVerdicts.addLast(verdictJson)
             return
         }
         view.post {
