@@ -26,6 +26,8 @@
  *                        chrome-extension://* for unpacked installs
  *   env.LLM_CHAIN        comma-separated provider ids, in preference order
  *   env.GEMINI_TRANSCRIBE_MODEL  model for /v1/transcribe
+ *   env.TRANSCRIBE_CHAIN comma-separated audio provider ids
+ *   env.AI               Cloudflare Workers AI binding used as audio fallback
  *   env.GEMINI_API_KEY / env.OPENROUTER_API_KEY / env.GROQ_API_KEY /
  *   env.TAVILY_API_KEY / env.MOBILE_API_TOKEN  (secrets)
  */
@@ -80,6 +82,10 @@ const MAX_BODY_BYTES = 128 * 1024; // articles are text; anything larger is abus
 // longer or higher-rate clip without inviting uploads of arbitrary files.
 const MAX_AUDIO_BODY_BYTES = 2 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 25000;
+const DEFAULT_LLM_CHAIN = 'gemini,openrouter,groq';
+const DEFAULT_TRANSCRIBE_CHAIN = 'gemini,workers_ai';
+const DEFAULT_WORKERS_AI_TRANSCRIBE_MODEL = '@cf/openai/whisper-large-v3-turbo';
+const TRANSCRIBE_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 /** Audio container types Gemini accepts as inline_data. */
 const TRANSCRIBE_MIME_TYPES = new Set([
@@ -163,8 +169,21 @@ async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   const declared = Number(request.headers.get('content-length') || 0);
   if (declared > maxBytes) throw new Error('payload too large');
   const text = await request.text();
-  if (text.length > maxBytes) throw new Error('payload too large');
-  return JSON.parse(text);
+  if (new TextEncoder().encode(text).byteLength > maxBytes) {
+    throw new Error('payload too large');
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('invalid json');
+  }
+}
+
+function configuredChain(raw, fallback, providers) {
+  return (raw || fallback)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((id) => providers.includes(id));
 }
 
 async function callProvider(provider, env, payload) {
@@ -214,10 +233,7 @@ async function handleChat(request, env, origin) {
     return json({ error: 'messages[] required' }, 400, origin);
   }
 
-  const chain = (env.LLM_CHAIN || 'nvidia')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((id) => PROVIDERS[id]);
+  const chain = configuredChain(env.LLM_CHAIN, DEFAULT_LLM_CHAIN, Object.keys(PROVIDERS));
 
   const attempts = [];
   for (const id of chain) {
@@ -409,10 +425,6 @@ async function handleGeminiLiveToken(env, origin) {
  * no equivalent audio surface here.
  */
 async function handleTranscribe(request, env, origin) {
-  if (!env.GEMINI_API_KEY) {
-    return json({ error: 'transcription is not configured' }, 503, origin);
-  }
-
   const payload = await readJson(request, MAX_AUDIO_BODY_BYTES);
   const audio = payload.audio || payload.data;
   const mimeType = (payload.mimeType || payload.mime_type || 'audio/wav').toLowerCase();
@@ -424,98 +436,146 @@ async function handleTranscribe(request, env, origin) {
     return json({ error: `unsupported audio type: ${mimeType}` }, 400, origin);
   }
 
-  const model = env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.5-flash';
   const prompt =
     'Transcribe the following audio exactly as spoken. Return ONLY the raw ' +
     'transcript text: no formatting, no timestamps, no speaker labels, no ' +
     'commentary. If the audio is silent or unintelligible, return exactly [inaudible].';
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-goog-api-key': env.GEMINI_API_KEY,
-          accept: 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: audio } }],
-            },
-          ],
-          generationConfig: { temperature: 0, maxOutputTokens: 4096 },
-        }),
-        signal: controller.signal,
-      },
-    );
+  const chain = configuredChain(
+    env.TRANSCRIBE_CHAIN,
+    DEFAULT_TRANSCRIBE_CHAIN,
+    ['gemini', 'workers_ai'],
+  );
+  const attempts = [];
+  let anyConfigured = false;
 
-    if (!response.ok) {
-      // Same reasoning as callProvider: never forward the upstream body.
-      console.log(JSON.stringify({ event: 'transcribe_failed', status: response.status }));
-      return json({ error: 'transcription is unavailable' }, 502, origin);
+  for (const provider of chain) {
+    if (provider === 'gemini') {
+      if (!env.GEMINI_API_KEY) continue;
+      anyConfigured = true;
+      const result = await transcribeWithGemini(audio, mimeType, prompt, env);
+      attempts.push(...result.attempts);
+      if (result.ok) {
+        return transcriptionResponse(result.transcript, 'gemini', result.model, origin);
+      }
     }
 
-    const data = await response.json();
-    const parts = data?.candidates?.[0]?.content?.parts;
-    const text = Array.isArray(parts)
-      ? parts.map((p) => p.text || '').join('').trim()
-      : '';
+    if (provider === 'workers_ai') {
+      if (!env.AI || typeof env.AI.run !== 'function') continue;
+      anyConfigured = true;
+      const result = await transcribeWithWorkersAI(audio, env);
+      attempts.push(result.attempt);
+      if (result.ok) {
+        return transcriptionResponse(result.transcript, 'workers_ai', result.model, origin);
+      }
+    }
+  }
 
-    // An empty or [inaudible] result is a real outcome, not an error: the caller
-    // needs to tell the user to unplug headphones rather than invent a claim.
-    return json({ transcript: text, model, inaudible: !text || text === '[inaudible]' }, 200, origin);
+  console.log(JSON.stringify({ event: 'transcribe_unavailable', attempts }));
+  return json(
+    { error: anyConfigured ? 'transcription is unavailable' : 'transcription is not configured' },
+    anyConfigured ? 502 : 503,
+    origin,
+  );
+}
+
+function transcriptionResponse(transcript, provider, model, origin) {
+  const text = String(transcript || '').trim();
+  const inaudible = !text || /^\[inaudible\]$/i.test(text);
+  return json({ transcript: inaudible ? '' : text, provider, model, inaudible }, 200, origin);
+}
+
+function boundedRetryDelay(response, retryIndex, env) {
+  const configuredBase = Number(env.TRANSCRIBE_RETRY_BASE_MS || 250);
+  const base = Number.isFinite(configuredBase) && configuredBase >= 0
+    ? Math.min(configuredBase, 1000)
+    : 250;
+  const retryAfter = Number(response.headers.get('retry-after'));
+  const serverDelay = Number.isFinite(retryAfter) && retryAfter >= 0
+    ? Math.min(retryAfter * 1000, 1000)
+    : 0;
+  const jitter = Math.floor(Math.random() * Math.max(1, base));
+  return Math.min(1000, Math.max(serverDelay, base * (2 ** retryIndex) + jitter));
+}
+
+async function transcribeWithGemini(audio, mimeType, prompt, env) {
+  const model = env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.5-flash';
+  const configuredAttempts = Number(env.GEMINI_TRANSCRIBE_ATTEMPTS || 2);
+  const maxAttempts = Number.isFinite(configuredAttempts)
+    ? Math.max(1, Math.min(Math.floor(configuredAttempts), 3))
+    : 2;
+  const attempts = [];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-goog-api-key': env.GEMINI_API_KEY,
+            accept: 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: audio } }],
+            }],
+            generationConfig: { temperature: 0, maxOutputTokens: 4096 },
+          }),
+          signal: controller.signal,
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const parts = data?.candidates?.[0]?.content?.parts;
+        const transcript = Array.isArray(parts)
+          ? parts.map((part) => part.text || '').join('').trim()
+          : '';
+        return { ok: true, transcript, model, attempts };
+      }
+
+      attempts.push({ provider: 'gemini', status: response.status });
+      if (!TRANSCRIBE_RETRYABLE_STATUSES.has(response.status) || attempt + 1 >= maxAttempts) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, boundedRetryDelay(response, attempt, env)));
+    } catch (err) {
+      const detail = err.name === 'AbortError' ? 'timeout' : 'network';
+      attempts.push({ provider: 'gemini', detail });
+      break;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return { ok: false, model, attempts };
+}
+
+async function transcribeWithWorkersAI(audio, env) {
+  const model = env.WORKERS_AI_TRANSCRIBE_MODEL || DEFAULT_WORKERS_AI_TRANSCRIBE_MODEL;
+  try {
+    const data = await env.AI.run(model, {
+      audio,
+      task: 'transcribe',
+      vad_filter: true,
+      condition_on_previous_text: false,
+    });
+    return { ok: true, transcript: data?.text || '', model, attempt: { provider: 'workers_ai', status: 200 } };
   } catch (err) {
-    const detail = err.name === 'AbortError' ? 'timeout' : 'network';
-    console.log(JSON.stringify({ event: 'transcribe_failed', detail }));
-    return json({ error: 'transcription is unavailable' }, 502, origin);
-  } finally {
-    clearTimeout(timer);
+    return {
+      ok: false,
+      model,
+      attempt: { provider: 'workers_ai', detail: err?.name || 'upstream' },
+    };
   }
 }
 
 // ─── Verification Pipeline for Mobile ────────────────────────────────────────
-
-const CLAIM_EXTRACTION_PROMPT = `You are a fact-checking assistant. Your task is to extract specific, discrete, falsifiable factual claims from the following text.
-
-Rules:
-- Only include claims that can be verified against external sources (statistics, events, attributions, scientific statements).
-- Each claim must be self-contained (understandable without the surrounding text).
-- Do NOT include opinions, predictions, rhetorical questions, or vague statements.
-- Do NOT include claims that are trivially obvious (e.g. "the sky is blue").
-- Rewrite each claim as a clear, concise sentence. Do not just copy chunks of the source text.
-- Limit to the 2–4 most significant, distinct, and verifiable claims.
-- Return ONLY a valid JSON array of strings. No explanation, no markdown, no extra text.
-
-Example output:
-["Indonesia's GDP grew 5.1% in Q3 2025.", "The WHO declared mpox a global health emergency in August 2024."]`;
-
-const VERDICT_PROMPT = `You are a rigorous fact-checker. Evaluate the following claim based ONLY on the evidence provided below. Do NOT use your own training knowledge. Ground your verdict strictly in the supplied sources.
-
-Claim:
-"{CLAIM}"
-
-Evidence:
-{EVIDENCE}
-
-Respond with ONLY valid JSON (no markdown fences, no extra text):
-{
-  "verdict": "True" | "False" | "Misleading" | "Unverified",
-  "explanation": "2–3 sentence explanation of your reasoning, referencing specific sources",
-  "confidence": "High" | "Medium" | "Low",
-  "key_sources": ["url1", "url2"]
-}
-
-Verdict definitions:
-- True: the claim is well-supported by the evidence.
-- False: the evidence clearly contradicts the claim.
-- Misleading: the claim contains a grain of truth but omits critical context, exaggerates, or distorts.
-- Unverified: the evidence is insufficient to confirm or deny the claim.`;
 
 function parseJSON(raw) {
   let cleaned = raw.trim();
@@ -543,10 +603,7 @@ function parseJSON(raw) {
 }
 
 async function workerCallLLM(promptText, env, temperature = 0.2, maxTokens = 2048) {
-  const chain = (env.LLM_CHAIN || 'nvidia')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((id) => PROVIDERS[id]);
+  const chain = configuredChain(env.LLM_CHAIN, DEFAULT_LLM_CHAIN, Object.keys(PROVIDERS));
 
   const payload = {
     messages: [{ role: 'user', content: promptText }],
@@ -604,26 +661,60 @@ Rules:
 - Limit to the 2 to 4 most significant, distinct, and verifiable claims.
 - Return ONLY a valid JSON array of strings in English. No explanation, no markdown format.`;
 
+const WORKER_LANGUAGES = {
+  id: { name: 'Bahasa Indonesia', label: 'Teks yang dianalisis' },
+  en: { name: 'English', label: 'Text to analyze' },
+  ja: { name: 'Japanese', label: '分析対象テキスト' },
+  ko: { name: 'Korean', label: '분석할 텍스트' },
+  zh: { name: 'Simplified Chinese', label: '待分析文本' },
+  ar: { name: 'Arabic', label: 'النص المراد تحليله' },
+  es: { name: 'Spanish', label: 'Texto a analizar' },
+  pt: { name: 'Portuguese', label: 'Texto para analisar' },
+  jv: { name: 'Javanese', label: 'Teks kanggo dianalisis' },
+  su: { name: 'Sundanese', label: 'Teks anu dianalisis' },
+};
+
+function genericClaimPrompt(languageName) {
+  return `You are a professional fact-checking assistant. Extract only specific, self-contained, falsifiable factual claims that can be checked against external sources. Exclude opinions, predictions, rhetorical questions, vague statements, and trivial observations. Rewrite each claim clearly in ${languageName}. Return ONLY a valid JSON array containing at most 3 strings in ${languageName}; no markdown or explanation.`;
+}
+
+function genericVerdictPrompt(languageName) {
+  return `You are a rigorous, independent fact-checker. Evaluate the claim using ONLY the supplied evidence. Do not use training knowledge. Respond ONLY with valid JSON using this shape: {"verdict":"True|False|Misleading|Unverified","explanation":"2 to 3 sentences in ${languageName}","confidence":"High|Medium|Low","key_sources":["URL from the evidence"]}. Use only exact URLs present in the evidence.`;
+}
+
+function isCheckableTranscript(text) {
+  const normalized = String(text || '').normalize('NFKC').trim();
+  const meaningful = normalized.match(/[\p{L}\p{N}]/gu) || [];
+  if (meaningful.length < 8) return false;
+  if (/\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/u.test(normalized)) {
+    return true;
+  }
+  const tokens = normalized
+    .split(/\s+/)
+    .filter((token) => /[\p{L}\p{N}]/u.test(token));
+  return tokens.length >= 3;
+}
+
 async function workerExtractClaims(text, env, lang = 'id') {
   const truncated = text.length > 12000 ? text.slice(0, 12000) + '\n[…text truncated…]' : text;
-  const basePrompt = lang === 'en' ? WORKER_CLAIM_EXTRACTION_PROMPT_EN : WORKER_CLAIM_EXTRACTION_PROMPT_ID;
-  const label = lang === 'en' ? 'Text to analyze' : 'Teks yang dianalisis';
+  const language = WORKER_LANGUAGES[lang] || WORKER_LANGUAGES.id;
+  const basePrompt = lang === 'id'
+    ? WORKER_CLAIM_EXTRACTION_PROMPT_ID
+    : lang === 'en'
+      ? WORKER_CLAIM_EXTRACTION_PROMPT_EN
+      : genericClaimPrompt(language.name);
+  const label = language.label;
   const prompt = basePrompt + `\n\n${label}:\n"""\n${truncated}\n"""`;
   const content = await workerCallLLM(prompt, env, 0.2, 2048);
 
-  try {
-    const claims = parseJSON(content);
-    if (Array.isArray(claims) && claims.length > 0) {
-      const filtered = claims.filter((c) => typeof c === 'string' && c.trim().length >= 10);
-      if (filtered.length > 0) return filtered.slice(0, 3);
-    }
-  } catch (_) {}
-
-  const lines = content
-    .split('\n')
-    .map((l) => l.replace(/^[\d\-\.\)\*]+\s*/, '').trim())
-    .filter((l) => l.length >= 10);
-  return lines.slice(0, 3);
+  const claims = parseJSON(content);
+  if (!Array.isArray(claims)) {
+    throw new Error('Claim extractor returned a non-array response');
+  }
+  return claims
+    .filter((claim) => typeof claim === 'string' && claim.trim().length >= 10)
+    .map((claim) => claim.trim())
+    .slice(0, 3);
 }
 
 const WORKER_VERDICT_PROMPT_ID = `Anda adalah seorang pemeriksa fakta yang independen dan teliti. Evaluasi klaim berikut berdasarkan HANYA bukti-bukti yang disediakan di bawah ini. JANGAN menggunakan pengetahuan di luar bukti yang diberikan.
@@ -658,7 +749,29 @@ Respond with ONLY valid JSON (no markdown fences, no extra text):
   "key_sources": ["url1", "url2"]
 }`;
 
+const WORKER_NO_EVIDENCE = {
+  id: 'Tidak ada bukti sumber yang ditemukan untuk mengevaluasi klaim ini.',
+  en: 'No source evidence was found to evaluate this claim.',
+  ja: 'この主張を評価するための出典情報が見つかりませんでした。',
+  ko: '이 주장을 평가할 출처 근거를 찾지 못했습니다.',
+  zh: '未找到可用于评估此声明的来源证据。',
+  ar: 'لم يتم العثور على أدلة من مصادر لتقييم هذا الادعاء.',
+  es: 'No se encontraron fuentes para evaluar esta afirmación.',
+  pt: 'Nenhuma evidência de fonte foi encontrada para avaliar esta afirmação.',
+  jv: 'Ora ana bukti sumber sing ditemokake kanggo mriksa klaim iki.',
+  su: 'Teu aya bukti sumber anu kapanggih pikeun mariksa klaim ieu.',
+};
+
 async function workerGenerateVerdict(claim, evidence, env, lang = 'id') {
+  if (evidence.length === 0) {
+    return {
+      verdict: 'Unverified',
+      explanation: WORKER_NO_EVIDENCE[lang] || WORKER_NO_EVIDENCE.id,
+      confidence: 'Low',
+      key_sources: [],
+    };
+  }
+
   const evidenceText =
     evidence.length > 0
       ? evidence
@@ -666,35 +779,41 @@ async function workerGenerateVerdict(claim, evidence, env, lang = 'id') {
           .join('\n\n')
       : '(No evidence was found for this claim.)';
 
-  const basePrompt = lang === 'en' ? WORKER_VERDICT_PROMPT_EN : WORKER_VERDICT_PROMPT_ID;
+  const language = WORKER_LANGUAGES[lang] || WORKER_LANGUAGES.id;
+  const basePrompt = lang === 'id'
+    ? WORKER_VERDICT_PROMPT_ID
+    : lang === 'en'
+      ? WORKER_VERDICT_PROMPT_EN
+      : genericVerdictPrompt(language.name) + '\n\nClaim:\n"{CLAIM}"\n\nEvidence:\n{EVIDENCE}';
   const prompt = basePrompt.replace('{CLAIM}', claim).replace('{EVIDENCE}', evidenceText);
   const content = await workerCallLLM(prompt, env, 0.1, 1024);
 
-  try {
-    const verdict = parseJSON(content);
-    const validVerdicts = ['True', 'False', 'Misleading', 'Unverified'];
-    if (!validVerdicts.includes(verdict.verdict)) {
-      verdict.verdict = 'Unverified';
-    }
-    return {
-      verdict: verdict.verdict,
-      explanation: verdict.explanation || (lang === 'en' ? 'No explanation provided.' : 'Tidak ada penjelasan yang diberikan.'),
-      confidence: verdict.confidence || 'Low',
-      key_sources: Array.isArray(verdict.key_sources) ? verdict.key_sources : [],
-    };
-  } catch (_) {
-    return {
-      verdict: 'Unverified',
-      explanation: lang === 'en' ? 'Could not parse the fact-check result.' : 'Tidak dapat memproses hasil pemeriksaan fakta.',
-      confidence: 'Low',
-      key_sources: [],
-    };
-  }
+  const verdict = parseJSON(content);
+  const validVerdicts = new Set(['True', 'False', 'Misleading', 'Unverified']);
+  const validConfidence = new Set(['High', 'Medium', 'Low']);
+  const evidenceUrls = new Set(
+    evidence
+      .map((item) => item.url)
+      .filter((url) => typeof url === 'string' && /^https?:\/\//i.test(url)),
+  );
+  return {
+    verdict: validVerdicts.has(verdict.verdict) ? verdict.verdict : 'Unverified',
+    explanation: typeof verdict.explanation === 'string' && verdict.explanation.trim()
+      ? verdict.explanation.trim()
+      : (lang === 'en' ? 'No explanation provided.' : 'Tidak ada penjelasan yang diberikan.'),
+    confidence: validConfidence.has(verdict.confidence) ? verdict.confidence : 'Low',
+    key_sources: Array.isArray(verdict.key_sources)
+      ? [...new Set(verdict.key_sources.filter((url) => evidenceUrls.has(url)))].slice(0, 3)
+      : [],
+  };
 }
 
 async function handleVerifyMobile(request, env, origin) {
   const payload = await readJson(request);
-  const lang = payload.lang === 'en' ? 'en' : 'id';
+  const lang = Object.hasOwn(WORKER_LANGUAGES, payload.lang) ? payload.lang : 'id';
+  if (payload.transcript && !payload.ocrText && !isCheckableTranscript(payload.transcript)) {
+    return noClaimsResponse(origin);
+  }
   let text = payload.text || payload.claimText || payload.claim;
   if (!text && (payload.transcript || payload.ocrText)) {
     const parts = [];
@@ -707,7 +826,17 @@ async function handleVerifyMobile(request, env, origin) {
     return json({ error: 'text, claim, transcript, or ocrText required' }, 400, origin);
   }
 
-  const claims = await workerExtractClaims(text, env, lang);
+  if (!isCheckableTranscript(text)) {
+    return noClaimsResponse(origin);
+  }
+
+  let claims;
+  try {
+    claims = await workerExtractClaims(text, env, lang);
+  } catch (err) {
+    console.log(JSON.stringify({ event: 'claim_extraction_failed', detail: err?.message || 'upstream' }));
+    return json({ error: 'verification is unavailable' }, 502, origin);
+  }
   if (claims.length === 0) {
     return json({
       verdict: 'Unverified',
@@ -721,7 +850,13 @@ async function handleVerifyMobile(request, env, origin) {
   const results = [];
   for (const claim of claims) {
     const evidence = await workerSearch(claim, env, 3);
-    const verdict = await workerGenerateVerdict(claim, evidence, env, lang);
+    let verdict;
+    try {
+      verdict = await workerGenerateVerdict(claim, evidence, env, lang);
+    } catch (err) {
+      console.log(JSON.stringify({ event: 'verdict_generation_failed', detail: err?.message || 'upstream' }));
+      return json({ error: 'verification is unavailable' }, 502, origin);
+    }
     results.push({ claim, verdict });
   }
 
@@ -732,6 +867,16 @@ async function handleVerifyMobile(request, env, origin) {
     explanation: primary.explanation,
     sources: primary.key_sources,
     claims: results,
+  }, 200, origin);
+}
+
+function noClaimsResponse(origin) {
+  return json({
+    verdict: 'Unverified',
+    confidence: 'Low',
+    explanation: 'No sufficiently clear factual statement was found in the transcript.',
+    sources: [],
+    claims: [],
   }, 200, origin);
 }
 
@@ -796,6 +941,9 @@ export default {
       // An oversized body is the caller's mistake, not ours; say which.
       if (err.message === 'payload too large') {
         return json({ error: 'payload too large' }, 413, effectiveOrigin);
+      }
+      if (err.message === 'invalid json') {
+        return json({ error: 'invalid json' }, 400, effectiveOrigin);
       }
       console.log(JSON.stringify({ event: 'unhandled', message: err.message }));
       return json({ error: 'proxy error' }, 500, effectiveOrigin);

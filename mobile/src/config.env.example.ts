@@ -13,6 +13,9 @@
  */
 
 export const ENV = {
+  /** Optional staging/self-hosted proxy override. Leave empty for production. */
+  PROXY_URL: '',
+
   /**
    * Must match the Worker secret MOBILE_API_TOKEN character-for-character, or
    * the proxy rejects every request with 403. Set it on the Worker with:

@@ -46,8 +46,8 @@ import androidx.core.app.NotificationCompat
  *     browser extension's verdict card UI ported verbatim (tokens + card CSS
  *     + card renderer). The widget never re-implements the verdict card
  *     natively, so there is no visual drift from the extension.
- *   - Dragging: the bubble is dragged natively; the card is dragged from its
- *     chrome header, which reports deltas through a @JavascriptInterface.
+ *   - Dragging: the bubble and the card's dedicated header handle are dragged
+ *     natively. The rest of the card remains available for WebView scrolling.
  *   - Tapping the bubble notifies React Native (FloatingWidgetController
  *     tap callback) so the EXISTING Listen flow in useListenSession runs —
  *     this service does not record audio.
@@ -64,6 +64,10 @@ class FloatingWidgetService : Service() {
         const val NOTIFICATION_ID = 2
         const val ACTION_START = "com.aletheia.app.START_WIDGET"
         const val ACTION_STOP = "com.aletheia.app.STOP_WIDGET"
+
+        private const val MIN_CARD_SCALE = 0.25f
+        private const val MAX_CARD_SCALE = 1.4f
+        private const val COLLAPSE_SCALE_THRESHOLD = 0.3f
     }
 
     private var windowManager: WindowManager? = null
@@ -83,12 +87,10 @@ class FloatingWidgetService : Service() {
     private var initialTouchY = 0f
     private var isClick = true
 
-    // Gesture thresholds must come from the platform, not raw pixels. The rest
-    // of this file scales dimensions by `density`; the two touch thresholds did
-    // not, so on a 450dpi phone they fired at 3.6dp and 2.8dp while the
-    // framework still treats anything under 8dp (22px here) as a stationary
-    // touch. Ordinary finger movement therefore cancelled the bubble tap and
-    // hijacked touches inside the card into a window drag.
+    // Gesture thresholds must come from the platform, not raw pixels. On a
+    // 450dpi phone, the old raw threshold fired at 3.6dp while the framework
+    // still treats anything under about 8dp as a stationary touch. Ordinary
+    // finger movement therefore cancelled bubble taps.
     private val touchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop }
 
     // Pinch-to-minimize & zoom state for the expanded card.
@@ -243,49 +245,19 @@ class FloatingWidgetService : Service() {
             bubbleClose = closeBadge
 
             // 2. Expanded card: WebView hosting the ported extension UI.
-            //    Custom FrameLayout that intercepts multi-finger touches before
-            //    the WebView can consume them for zoom. Single-finger touches
-            //    pass through normally so the WebView's scroll, tap, and close
-            //    button all keep working.
-            var isCardDragging = false
-
+            //    This custom FrameLayout intercepts only multi-finger gestures
+            //    for native pinch resizing. Single-finger gestures must always
+            //    reach the WebView so its feed can scroll; window dragging is
+            //    handled exclusively by the native header handle below.
             val card = object : FrameLayout(this@FloatingWidgetService) {
                 override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                     if (ev.pointerCount >= 2) {
-                        isCardDragging = false
                         scaleDetector?.onTouchEvent(ev)
                         return true
                     }
                     if (isPinching && (ev.action == MotionEvent.ACTION_UP || ev.action == MotionEvent.ACTION_CANCEL)) {
                         finishPinchGesture()
                         return true
-                    }
-
-                    when (ev.action) {
-                        MotionEvent.ACTION_DOWN -> {
-                            initialX = wmParams?.x ?: 0
-                            initialY = wmParams?.y ?: 0
-                            initialTouchX = ev.rawX
-                            initialTouchY = ev.rawY
-                            isCardDragging = false
-                        }
-                        MotionEvent.ACTION_MOVE -> {
-                            val dx = (ev.rawX - initialTouchX).toInt()
-                            val dy = (ev.rawY - initialTouchY).toInt()
-                            if (!isCardDragging && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
-                                isCardDragging = true
-                            }
-                            if (isCardDragging) {
-                                moveWindow(initialX + dx, initialY + dy)
-                                return true
-                            }
-                        }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            if (isCardDragging) {
-                                isCardDragging = false
-                                return true
-                            }
-                        }
                     }
 
                     return super.dispatchTouchEvent(ev)
@@ -325,7 +297,8 @@ class FloatingWidgetService : Service() {
                         if (isCollapsing) return true
                         cumulativeScale *= detector.scaleFactor
                         val cardView = cardContainer ?: return true
-                        val scale = (initialGestureScale * cumulativeScale).coerceIn(0.25f, 1.4f)
+                        val scale = (initialGestureScale * cumulativeScale)
+                            .coerceIn(MIN_CARD_SCALE, MAX_CARD_SCALE)
                         currentCardScale = scale
 
                         cardView.scaleX = scale
@@ -344,7 +317,7 @@ class FloatingWidgetService : Service() {
             // Native drag bar — added to ROOT (not card) so it sits ABOVE the
             // WebView in z-order. The WebView cannot consume touches from a
             // sibling view drawn on top of it.
-            // Covers the left48dp × 48dp at the top (the grip area), leaving
+            // Covers the left 48dp × 48dp at the top (the grip area), leaving
             // the right side free so the WebView's close button keeps working.
             val bar = View(this).apply {
                 setBackgroundColor(Color.parseColor("#01000000"))
@@ -435,7 +408,7 @@ class FloatingWidgetService : Service() {
     private fun finishPinchGesture() {
         if (!isPinching) return
         isPinching = false
-        if (currentCardScale < 0.18f) {
+        if (currentCardScale <= COLLAPSE_SCALE_THRESHOLD) {
             collapse()
         } else {
             settleCardScale()
@@ -445,7 +418,7 @@ class FloatingWidgetService : Service() {
     private fun settleCardScale() {
         Handler(Looper.getMainLooper()).post {
             val card = cardContainer ?: return@post
-            val targetScale = currentCardScale.coerceIn(0.25f, 1.4f)
+            val targetScale = currentCardScale.coerceIn(MIN_CARD_SCALE, MAX_CARD_SCALE)
             currentCardScale = targetScale
 
             card.animate()?.cancel()
@@ -500,8 +473,8 @@ class FloatingWidgetService : Service() {
             if (card != null) {
                 card.pivotX = 0f
                 card.pivotY = 0f
-                card.scaleX = 0.25f
-                card.scaleY = 0.25f
+                card.scaleX = MIN_CARD_SCALE
+                card.scaleY = MIN_CARD_SCALE
                 card.alpha = 0f
                 card.visibility = View.VISIBLE
                 card.animate()?.cancel()
@@ -584,8 +557,8 @@ class FloatingWidgetService : Service() {
             // Animate: scale down to 0.25f + fade out simultaneously.
             card.animate()?.cancel()
             card.animate()
-                .scaleX(0.25f)
-                .scaleY(0.25f)
+                .scaleX(MIN_CARD_SCALE)
+                .scaleY(MIN_CARD_SCALE)
                 .alpha(0f)
                 .setDuration(280L)
                 .setInterpolator(android.view.animation.DecelerateInterpolator(2.5f))
@@ -688,32 +661,10 @@ class FloatingWidgetService : Service() {
         super.onDestroy()
     }
 
-    // ── JS → native bridge for card dragging / collapsing ──────────────────
-    // The ported overlay.html chrome header calls these; they run on a
-    // WebView background thread, so every mutation posts to the main looper.
+    // ── JS → native bridge for collapsing ──────────────────────────────────
+    // JavaScript-interface calls run on a WebView background thread, so the
+    // view mutation is posted to the main looper.
     private inner class WidgetBridge {
-        @JavascriptInterface
-        fun onDragStart(x: Float, y: Float) {
-            Handler(Looper.getMainLooper()).post {
-                initialX = wmParams?.x ?: 0
-                initialY = wmParams?.y ?: 0
-                initialTouchX = x
-                initialTouchY = y
-            }
-        }
-
-        @JavascriptInterface
-        fun onDragMove(dx: Float, dy: Float) {
-            Handler(Looper.getMainLooper()).post {
-                moveWindow(initialX + dx.toInt(), initialY + dy.toInt())
-            }
-        }
-
-        @JavascriptInterface
-        fun onDragEnd() {
-            // No-op: position already updated during move.
-        }
-
         @JavascriptInterface
         fun onCollapse() {
             Handler(Looper.getMainLooper()).post { collapse() }

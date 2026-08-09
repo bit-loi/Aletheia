@@ -30,6 +30,11 @@
     // without breaking mobile audio.
     "GEMINI_TRANSCRIBE_MODEL": "gemini-2.5-flash",
 
+    // Gemini stays primary. Transient 429/5xx responses are retried once, then
+    // the request falls through to Cloudflare's audio-specific Whisper model.
+    "TRANSCRIBE_CHAIN": "gemini,workers_ai",
+    "WORKERS_AI_TRANSCRIBE_MODEL": "@cf/openai/whisper-large-v3-turbo",
+
     // Pinned free multilingual fallback. Free availability can change, so this
     // stays configurable without a source change.
     "OPENROUTER_MODEL": "google/gemma-4-26b-a4b-it:free",
@@ -45,6 +50,10 @@
     // Only read when "searxng" is in SEARCH_CHAIN.
     "SEARXNG_URL": ""
   },
+
+  // Audio-specific fallback for /v1/transcribe. This binding contains no
+  // credential and is only callable from inside this Worker.
+  "ai": { "binding": "AI" },
 
   // Per-IP throttle. Rate limits are per Cloudflare location and eventually
   // consistent, so treat this as a blunt abuse brake, not accounting.

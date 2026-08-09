@@ -12,6 +12,7 @@
 
 import { CONFIG } from './config';
 import { t, type LangCode, DEFAULT_LANG } from './i18n';
+import { isCheckableTranscript } from './transcriptQuality';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,13 @@ export interface VerificationResult {
 
 // ─── Proxy Helpers ────────────────────────────────────────────────────────────
 
+class ProxyError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ProxyError';
+  }
+}
+
 async function callProxy(path: string, body: Record<string, unknown>): Promise<any> {
   const base = (CONFIG.PROXY_URL || '').replace(/\/$/, '');
   if (!base) throw new Error('The Aletheia proxy is not configured.');
@@ -60,11 +68,11 @@ async function callProxy(path: string, body: Record<string, unknown>): Promise<a
   });
 
   if (res.status === 429) {
-    throw new Error('Aletheia is busy right now (shared quota). Try again shortly.');
+    throw new ProxyError('Aletheia is busy right now (shared quota). Try again shortly.', 429);
   }
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
-    throw new Error((detail as any).error || `Proxy error (${res.status})`);
+    throw new ProxyError((detail as any).error || `Proxy error (${res.status})`, res.status);
   }
   return res.json();
 }
@@ -93,20 +101,20 @@ function parseJSON(raw: string): any {
 
   try {
     return JSON.parse(cleaned);
-  } catch (_) {}
+  } catch {}
 
   const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
   if (arrayMatch) {
     try {
       return JSON.parse(arrayMatch[0]);
-    } catch (_) {}
+    } catch {}
   }
 
   const objectMatch = cleaned.match(/\{[\s\S]*\}/);
   if (objectMatch) {
     try {
       return JSON.parse(objectMatch[0]);
-    } catch (_) {}
+    } catch {}
   }
 
   throw new Error(`Invalid JSON format: ${raw.slice(0, 150)}`);
@@ -260,6 +268,7 @@ const TEXT_LABELS: Record<string, string> = {
 };
 
 export async function extractClaims(text: string, lang: LangCode = DEFAULT_LANG): Promise<string[]> {
+  if (!isCheckableTranscript(text)) return [];
   const truncated =
     text.length > 12000 ? text.slice(0, 12000) + '\n[…text truncated…]' : text;
   const basePrompt = CLAIM_EXTRACTION_PROMPTS[lang] || CLAIM_EXTRACTION_PROMPTS.id;
@@ -268,45 +277,29 @@ export async function extractClaims(text: string, lang: LangCode = DEFAULT_LANG)
 
   const content = await callLLM(prompt, 0.2, 2048);
 
-  try {
-    const claims = parseJSON(content);
-    if (!Array.isArray(claims) || claims.length === 0) {
-      throw new Error('Parsed result is not a non-empty array.');
-    }
-    const filtered = claims.filter(
-      (c: any) => typeof c === 'string' && c.trim().length >= 10,
-    );
-    return filtered.slice(0, 3);
-  } catch (parseErr) {
-    console.warn(
-      '[Aletheia Mobile] Failed to parse claims JSON, attempting line-split fallback:',
-      parseErr,
-    );
-    const lines = content
-      .split('\n')
-      .map((l: string) => l.replace(/^[\d\-\.\)\*]+\s*/, '').trim())
-      .filter((l: string) => l.length >= 10);
-    if (lines.length === 0) {
-      throw new Error('Could not parse any claims from LLM response.');
-    }
-    return lines.slice(0, 3);
+  const claims = parseJSON(content);
+  if (!Array.isArray(claims)) {
+    throw new Error('Claim extractor returned a non-array response.');
   }
+  return claims
+    .filter((claim: unknown): claim is string =>
+      typeof claim === 'string' && claim.trim().length >= 10,
+    )
+    .map((claim: string) => claim.trim())
+    .slice(0, 3);
 }
 
 // Stage 2: Evidence Retrieval
 
 export async function retrieveEvidence(claim: string): Promise<EvidenceItem[]> {
-  try {
-    const data = await callProxy('/v1/search', { query: claim, max_results: 3 });
-    return (data.results || []).map((r: any) => ({
-      title: r.title || 'Untitled',
-      url: r.url || '',
-      snippet: r.snippet || '',
+  const data = await callProxy('/v1/search', { query: claim, max_results: 3 });
+  return (Array.isArray(data.results) ? data.results : [])
+    .filter((result: any) => typeof result?.url === 'string' && /^https?:\/\//i.test(result.url))
+    .map((result: any) => ({
+      title: typeof result.title === 'string' && result.title.trim() ? result.title.trim() : 'Untitled',
+      url: result.url,
+      snippet: typeof result.snippet === 'string' ? result.snippet : '',
     }));
-  } catch (err: any) {
-    console.warn('[Aletheia Mobile] Evidence retrieval failed:', err.message);
-    return [];
-  }
 }
 
 // Stage 3: Verdict Generation
@@ -546,17 +539,17 @@ const NO_EXPLANATION: Record<string, string> = {
   su: 'Teu aya panjelasan anu disayogikeun.',
 };
 
-const PARSE_ERROR: Record<string, string> = {
-  id: 'Tidak dapat memproses hasil pemeriksaan fakta.',
-  en: 'Could not parse the fact-check result.',
-  ja: 'ファクトチェック結果を解析できませんでした.',
-  ko: '팩트체크 결과를 분석할 수 없습니다.',
-  zh: '无法解析事实核查结果。',
-  ar: 'تعذر تحليل نتيجة فحص الحقائق.',
-  es: 'No se pudo analizar el resultado de la verificación.',
-  pt: 'Não foi possível analisar o resultado da verificação.',
-  jv: 'Ora bisa menganalisis asil pemeriksaan fakta.',
-  su: 'Teu tiasa ngaluarkeun hasil panyodoran fakta.',
+const NO_EVIDENCE: Record<string, string> = {
+  id: 'Tidak ada bukti sumber yang ditemukan untuk mengevaluasi klaim ini.',
+  en: 'No source evidence was found to evaluate this claim.',
+  ja: 'この主張を評価するための出典情報が見つかりませんでした。',
+  ko: '이 주장을 평가할 출처 근거를 찾지 못했습니다.',
+  zh: '未找到可用于评估此声明的来源证据。',
+  ar: 'لم يتم العثور على أدلة من مصادر لتقييم هذا الادعاء.',
+  es: 'No se encontraron fuentes para evaluar esta afirmación.',
+  pt: 'Nenhuma evidência de fonte foi encontrada para avaliar esta afirmação.',
+  jv: 'Ora ana bukti sumber sing ditemokake kanggo mriksa klaim iki.',
+  su: 'Teu aya bukti sumber anu kapanggih pikeun mariksa klaim ieu.',
 };
 
 export async function generateVerdict(
@@ -564,6 +557,15 @@ export async function generateVerdict(
   evidence: EvidenceItem[],
   lang: LangCode = DEFAULT_LANG,
 ): Promise<Verdict> {
+  if (evidence.length === 0) {
+    return {
+      verdict: 'Unverified',
+      explanation: NO_EVIDENCE[lang] || NO_EVIDENCE.id,
+      confidence: 'Low',
+      key_sources: [],
+    };
+  }
+
   const evidenceText =
     evidence.length > 0
       ? evidence
@@ -581,33 +583,29 @@ export async function generateVerdict(
 
   const content = await callLLM(prompt, 0.1, 1024);
 
-  try {
-    const verdict = parseJSON(content);
-    const validVerdicts = ['True', 'False', 'Misleading', 'Unverified'];
+  const verdict = parseJSON(content);
+  return sanitizeVerdict(verdict, evidence.map(item => item.url), lang);
+}
 
-    return {
-      verdict: validVerdicts.includes(verdict.verdict)
-        ? verdict.verdict
-        : 'Unverified',
-      explanation: verdict.explanation || NO_EXPLANATION[lang] || NO_EXPLANATION.id,
-      confidence: verdict.confidence || 'Low',
-      key_sources: Array.isArray(verdict.key_sources)
-        ? verdict.key_sources
-        : [],
-    };
-  } catch (parseErr) {
-    console.warn(
-      '[Aletheia Mobile] Failed to parse verdict JSON:',
-      parseErr,
-      content,
-    );
-    return {
-      verdict: 'Unverified',
-      explanation: PARSE_ERROR[lang] || PARSE_ERROR.id,
-      confidence: 'Low',
-      key_sources: [],
-    };
-  }
+function sanitizeVerdict(raw: any, allowedUrls: string[] | null, lang: LangCode): Verdict {
+  const validVerdicts = new Set<Verdict['verdict']>(['True', 'False', 'Misleading', 'Unverified']);
+  const validConfidence = new Set<Verdict['confidence']>(['High', 'Medium', 'Low']);
+  const sourceAllowList = allowedUrls ? new Set(allowedUrls) : null;
+  const rawSources: unknown[] = Array.isArray(raw?.key_sources) ? raw.key_sources : [];
+  const keySources = rawSources.filter((url: unknown): url is string =>
+    typeof url === 'string' &&
+    /^https?:\/\//i.test(url) &&
+    (!sourceAllowList || sourceAllowList.has(url)),
+  );
+
+  return {
+    verdict: validVerdicts.has(raw?.verdict) ? raw.verdict : 'Unverified',
+    explanation: typeof raw?.explanation === 'string' && raw.explanation.trim()
+      ? raw.explanation.trim()
+      : NO_EXPLANATION[lang] || NO_EXPLANATION.id,
+    confidence: validConfidence.has(raw?.confidence) ? raw.confidence : 'Low',
+    key_sources: [...new Set(keySources)].slice(0, 3),
+  };
 }
 
 // ─── Full Pipeline ────────────────────────────────────────────────────────────
@@ -623,21 +621,33 @@ export async function verifyTranscript(
   lang: LangCode = DEFAULT_LANG,
   onProgress?: (status: string) => void,
 ): Promise<VerificationResult> {
+  if (!isCheckableTranscript(transcript)) {
+    return { claims: [], rawTranscript: transcript };
+  }
+
   onProgress?.(t('verifying_via_backend', lang));
 
   try {
     const data = await callProxy('/v1/verify-mobile', { transcript, lang });
     if (data && Array.isArray(data.claims)) {
+      const claims = data.claims
+        .filter((item: any) => typeof item?.claim === 'string' && item.claim.trim().length >= 10)
+        .map((item: any): ClaimResult => ({
+          claim: item.claim.trim(),
+          verdict: sanitizeVerdict(item.verdict, null, lang),
+        }));
       return {
-        claims: data.claims,
+        claims,
         rawTranscript: transcript,
       };
     }
   } catch (err: any) {
-    console.warn(
-      '[Aletheia Mobile] Direct /v1/verify-mobile call failed, attempting step-by-step fallback:',
-      err.message,
-    );
+    // Older self-hosted proxies may not have this endpoint. Only that
+    // compatibility case falls back. Retrying a 429/5xx as four more proxy
+    // calls amplifies the outage and burns the same exhausted quota.
+    if (!(err instanceof ProxyError) || ![404, 501].includes(err.status)) {
+      throw err;
+    }
   }
 
   onProgress?.(t('extracting_claims_mobile', lang));

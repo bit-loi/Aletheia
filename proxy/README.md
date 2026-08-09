@@ -50,6 +50,9 @@ curl localhost:8000/health
 | `ALLOWED_ORIGINS` | `chrome-extension://*` | no |
 | `LLM_CHAIN` | `gemini,openrouter,groq` | no |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite` | no |
+| `GEMINI_TRANSCRIBE_MODEL` | `gemini-2.5-flash` | no |
+| `TRANSCRIBE_CHAIN` | `gemini,workers_ai` | no |
+| `WORKERS_AI_TRANSCRIBE_MODEL` | `@cf/openai/whisper-large-v3-turbo` | no |
 | `OPENROUTER_MODEL` | `google/gemma-4-26b-a4b-it:free` | no |
 | `SEARCH_CHAIN` | `tavily,wikipedia` | no |
 
@@ -99,12 +102,20 @@ Then set two things:
 |---|---|---|---|
 | `POST` | `/v1/chat` | `{messages, temperature?, max_tokens?}` | `{content, provider}` |
 | `POST` | `/v1/search` | `{query, max_results?}` | `{results: [{title, url, snippet}]}` |
+| `POST` | `/v1/transcribe` | `{audio, mimeType}` | `{transcript, inaudible, provider, model}` |
+| `POST` | `/v1/verify-mobile` | `{transcript, lang}` | `{claims, verdict, confidence, explanation, sources}` |
 | `POST` | `/v1/gemini-live-token` | | `{token}` |
 | `GET` | `/health` | | `ok` |
 
 ## Provider chains
 
 **`LLM_CHAIN`** lists model providers in preference order. Every entry speaks the OpenAI `/chat/completions` shape, so failover costs only a base URL and a model id. Configured: `gemini` (via Google's OpenAI-compatibility layer), `openrouter`, `groq`, `nvidia`, `pollinations`.
+
+**`TRANSCRIBE_CHAIN`** is separate because audio providers do not share the
+chat-completions request shape. Gemini native audio is primary. Retryable
+Gemini throttling and server failures get one bounded retry with jitter, then
+Cloudflare Workers AI runs the configured Whisper model through the `AI`
+binding. Deployments outside Cloudflare simply skip that unavailable binding.
 
 The default OpenRouter fallback is pinned to
 `google/gemma-4-26b-a4b-it:free`. Pinning avoids the output-quality variance of
