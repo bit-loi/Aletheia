@@ -1,7 +1,6 @@
 package com.aletheia.app
 
 import android.webkit.WebView
-import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * FloatingWidgetController: singleton direct bridge between React Native
@@ -28,7 +27,12 @@ object FloatingWidgetController {
     // the opposite of what the widget is for: the whole point is to read the
     // results without going back to the app. overlay.html appends to a feed,
     // so queue them and replay the feed in order once the page is up.
-    private val pendingVerdicts = ConcurrentLinkedQueue<String>()
+    //
+    // Guarded by the monitor rather than a concurrent collection: the hazard is
+    // the check-then-act across `pageLoaded` and the queue, which a thread-safe
+    // collection does not cover. Without the lock a verdict can be enqueued
+    // just after onPageLoaded() drains, and then never render at all.
+    private val pendingVerdicts = ArrayDeque<String>()
 
     // Bounded so a long session cannot grow this without limit. Older verdicts
     // are dropped first; the feed keeps the most recent MAX_PENDING_VERDICTS.
@@ -38,11 +42,13 @@ object FloatingWidgetController {
     @Volatile private var service: FloatingWidgetService? = null
 
     /** The service attaches its card WebView here after inflating it. */
+    @Synchronized
     fun attach(view: WebView) {
         webView = view
         pageLoaded = false
     }
 
+    @Synchronized
     fun detach() {
         webView = null
         pageLoaded = false
@@ -51,15 +57,15 @@ object FloatingWidgetController {
     }
 
     /** Called from WebViewClient.onPageFinished so early updates are queued. */
+    @Synchronized
     fun onPageLoaded() {
         pageLoaded = true
         pendingStatus?.let { updateStatus(it) }
         pendingStatus = null
         // Drain oldest-first so the feed reads in the order the claims were
         // checked. updateVerdict now renders directly, since pageLoaded is set.
-        while (true) {
-            val queued = pendingVerdicts.poll() ?: break
-            updateVerdict(queued)
+        while (pendingVerdicts.isNotEmpty()) {
+            updateVerdict(pendingVerdicts.removeFirst())
         }
     }
 
@@ -84,6 +90,7 @@ object FloatingWidgetController {
     fun isWidgetActive(): Boolean = service != null
 
     /** Push a live status string ("Mendengarkan…", "Memeriksa klaim…"). */
+    @Synchronized
     fun updateStatus(statusText: String) {
         val view = webView
         if (view == null || !pageLoaded) {
@@ -105,11 +112,12 @@ object FloatingWidgetController {
      * { claim, verdict, explanation, confidence, key_sources }) so the
      * WebView's renderVerdict paints the extension card.
      */
+    @Synchronized
     fun updateVerdict(verdictJson: String) {
         val view = webView
         if (view == null || !pageLoaded) {
-            while (pendingVerdicts.size >= MAX_PENDING_VERDICTS) pendingVerdicts.poll()
-            pendingVerdicts.add(verdictJson)
+            while (pendingVerdicts.size >= MAX_PENDING_VERDICTS) pendingVerdicts.removeFirst()
+            pendingVerdicts.addLast(verdictJson)
             return
         }
         view.post {
