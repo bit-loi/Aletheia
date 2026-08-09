@@ -15,9 +15,8 @@
        2. `:host` token selectors → `:root` / `html.light-theme`.
        3. chrome.storage theme removed → dark by default; setTheme() exposed
           for a future setting. Same visual design, no persistence.
-       4. Dragging now reports deltas to window.AletheiaNative (a Kotlin
-          @JavascriptInterface) which moves the actual overlay window,
-          because a WebView cannot reposition itself off-screen.
+       4. Dragging is handled by a native touch target above the WebView,
+          because a WebView cannot reposition its overlay window.
        5. addClaimCard() → renderVerdict(data): same card DOM + CSS.
        6. Minimize/close collapse the card back to the native bubble.
      All colours, sizes, radii, durations and shadows come from the token set
@@ -650,7 +649,6 @@
   }
 
   // ── Controls ─────────────────────────────────────────────────────────────
-  // The bridge method is onCollapse, matching the onDragStart/Move/End naming.
   // Calling a name the bridge does not expose fails silently in a WebView.
   function native() {
     return (typeof window.AletheiaNative !== 'undefined') ? window.AletheiaNative : null;
