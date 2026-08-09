@@ -22,6 +22,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
@@ -81,6 +82,14 @@ class FloatingWidgetService : Service() {
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var isClick = true
+
+    // Gesture thresholds must come from the platform, not raw pixels. The rest
+    // of this file scales dimensions by `density`; the two touch thresholds did
+    // not, so on a 450dpi phone they fired at 3.6dp and 2.8dp while the
+    // framework still treats anything under 8dp (22px here) as a stationary
+    // touch. Ordinary finger movement therefore cancelled the bubble tap and
+    // hijacked touches inside the card into a window drag.
+    private val touchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop }
 
     // Pinch-to-minimize & zoom state for the expanded card.
     private var scaleDetector: ScaleGestureDetector? = null
@@ -263,7 +272,7 @@ class FloatingWidgetService : Service() {
                         MotionEvent.ACTION_MOVE -> {
                             val dx = (ev.rawX - initialTouchX).toInt()
                             val dy = (ev.rawY - initialTouchY).toInt()
-                            if (!isCardDragging && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+                            if (!isCardDragging && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
                                 isCardDragging = true
                             }
                             if (isCardDragging) {
@@ -381,7 +390,7 @@ class FloatingWidgetService : Service() {
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - initialTouchX).toInt()
                         val dy = (event.rawY - initialTouchY).toInt()
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
                             isClick = false
                         }
                         moveWindow(initialX + dx, initialY + dy)
